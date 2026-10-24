@@ -8,6 +8,7 @@ import { expiredPage, livePage, LiveViews, streamFrames } from './live.js';
 import { createMcpServer } from './mcp.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
+import { createReviewApi, REVIEW_CSP, ReviewError, reviewPage } from './review.js';
 import { RigHub } from './rigs.js';
 import { TraceRecorder } from './traces.js';
 import type { Store } from './store.js';
@@ -101,6 +102,22 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (pathname === '/health') return send(res, 200, { ok: true });
     if (pathname === '/mcp') return handleMcp(req, res, requireKey(req));
     if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.report(requireKey(req)));
+    if (pathname === '/review' && req.method === 'GET') {
+      return send(res, 200, reviewPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': REVIEW_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    }
+    if (pathname.startsWith('/v1/episodes')) {
+      try {
+        const reviewed = await createReviewApi(config.traceDir, config.reviewToken).handle(req, pathname, () => readJson(req, limits.maxJsonBytes));
+        if (reviewed) return send(res, reviewed.status, reviewed.body, reviewed.type);
+      } catch (error) {
+        if (error instanceof ReviewError) throw new HttpError(error.status, error.message);
+        throw error;
+      }
+    }
     if (pathname === '/dashboard' && req.method === 'GET') {
       return send(res, 200, dashboardPage(), 'text/html; charset=utf-8', {
         'Content-Security-Policy': DASHBOARD_CSP,
