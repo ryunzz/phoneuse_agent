@@ -5,7 +5,7 @@ import type { PhoneAction } from './actions.js';
 import type { Limits } from './config.js';
 import type { LiveViews } from './live.js';
 import { RigError, type Frame, type RigHub } from './rigs.js';
-import type { UsageLedger } from './usage.js';
+import { estimateImageTokens, jpegSize, type UsageLedger } from './usage.js';
 
 export interface McpContext {
   readonly keyId: string;
@@ -42,12 +42,19 @@ function withFrame(message: string, frame: Frame | null, now: number): CallToolR
   };
 }
 
-function imageStats(result: CallToolResult): { images: number; imageBytes: number } {
-  const images = result.content.filter((item) => item.type === 'image');
-  return {
-    images: images.length,
-    imageBytes: images.reduce((sum, item) => sum + (item.type === 'image' ? Math.floor((item.data.length * 3) / 4) : 0), 0),
-  };
+function imageStats(result: CallToolResult): { images: number; imageBytes: number; imageTokens: number } {
+  const buffers = result.content.flatMap((item) => (item.type === 'image' ? [Buffer.from(item.data, 'base64')] : []));
+  return buffers.reduce(
+    (stats, data) => {
+      const size = jpegSize(data);
+      return {
+        images: stats.images + 1,
+        imageBytes: stats.imageBytes + data.length,
+        imageTokens: stats.imageTokens + (size ? estimateImageTokens(size.width, size.height) : 0),
+      };
+    },
+    { images: 0, imageBytes: 0, imageTokens: 0 },
+  );
 }
 
 export function createMcpServer(ctx: McpContext): McpServer {
@@ -64,7 +71,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
         result = failure(error instanceof RigError ? error.message : 'Gateway error; please try again.');
         if (!(error instanceof RigError)) console.error(`[mcp] ${tool} failed`, error);
       }
-      ctx.usage.record({
+      const event = ctx.usage.record({
         keyId: ctx.keyId,
         tool,
         rigId: ctx.hub.leaseFor(ctx.keyId),
@@ -72,7 +79,8 @@ export function createMcpServer(ctx: McpContext): McpServer {
         durationMs: Date.now() - started,
         ...imageStats(result),
       });
-      return result;
+      // Tell the caller what this call cost so agents can budget.
+      return event.tokens > 0 ? { ...result, content: [...result.content, { type: 'text', text: `Tokens billed: ${event.tokens}.` }] } : result;
     };
 
   const leasedRig = (): string => {
