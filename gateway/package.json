@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
-    "phone": "HOST=0.0.0.0 bun src/server.ts",
+    "phone": "HOST=0.0.0.0 ENROLLMENT=open bun src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "admin": "bun src/admin.ts",
     "test": "bun test"
