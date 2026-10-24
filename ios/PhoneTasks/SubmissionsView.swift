@@ -38,6 +38,7 @@ struct SubmissionsView: View {
         .navigationTitle("My submissions")
         .navigationDestination(for: UUID.self) { AttemptView(attemptID: $0) }
         .refreshable { await model.refresh() }
+        .task { await model.refresh() }
     }
 }
 
