@@ -22,6 +22,13 @@ final class AppModel {
             .appendingPathComponent("PhoneTasks", isDirectory: true)
         try? FileManager.default.createDirectory(at: recordings, withIntermediateDirectories: true)
         pairing = Pairing.load()
+        #if DEBUG
+        // Simulator testing: `SIMCTL_CHILD_PHONETASKS_PAIRING=<pairing string> xcrun simctl launch …`.
+        if let text = ProcessInfo.processInfo.environment["PHONETASKS_PAIRING"], let debugPairing = Pairing.parse(text) {
+            debugPairing.save()
+            pairing = debugPairing
+        }
+        #endif
         if let data = try? Data(contentsOf: attemptsFile), let saved = try? JSONDecoder().decode([Attempt].self, from: data) {
             // An app quit mid-upload leaves "uploading"; show it as retryable.
             attempts = saved.map { attempt in
