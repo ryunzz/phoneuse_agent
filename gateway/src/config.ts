@@ -6,6 +6,10 @@ export interface Config {
   /** Base URL clients use to reach this gateway; live-feed links are built from it. */
   readonly publicUrl: string;
   readonly dataDir: string;
+  /** Where gateway sessions are recorded as episodes (episodes.py format). Null disables recording. */
+  readonly traceDir: string | null;
+  /** Bearer token for the episode review page/API. Null disables review. */
+  readonly reviewToken: string | null;
   readonly limits: Limits;
 }
 
@@ -41,11 +45,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!/^https?:\/\//.test(publicUrl)) {
     throw new Error('PUBLIC_URL must start with http:// or https://');
   }
+  const dataDir = path.resolve(env.DATA_DIR ?? 'data');
+  const reviewToken = env.REVIEW_TOKEN?.trim() || null;
+  if (reviewToken && reviewToken.length < 24) throw new Error('REVIEW_TOKEN must be at least 24 characters');
   return {
     host,
     port,
     publicUrl,
-    dataDir: path.resolve(env.DATA_DIR ?? 'data'),
+    dataDir,
+    traceDir: env.TRACES === 'off' ? null : path.resolve(env.TRACE_DIR ?? path.join(dataDir, 'demonstrations')),
+    reviewToken,
     limits: DEFAULT_LIMITS,
   };
 }

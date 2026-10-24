@@ -9,6 +9,7 @@ import { createMcpServer } from './mcp.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { RigHub } from './rigs.js';
+import { TraceRecorder } from './traces.js';
 import type { Store } from './store.js';
 import { UsageLedger } from './usage.js';
 
@@ -62,6 +63,7 @@ export function createGateway(config: Config, store: Store): Gateway {
   const usage = new UsageLedger(`${config.dataDir}/usage.jsonl`);
   const live = new LiveViews(limits.liveTokenMs);
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const traces = config.traceDir ? new TraceRecorder(config.traceDir) : null;
 
   const requireKey = (req: IncomingMessage): string => {
     const secret = bearerToken(req, 'pu');
@@ -82,7 +84,7 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (req.method !== 'POST') return send(res, 405, { error: 'This MCP endpoint is stateless; use POST' });
     const body = await readJson(req, limits.maxJsonBytes);
     // Stateless Streamable HTTP: fresh server per request; rig leases live on the API key.
-    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits });
+    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();
