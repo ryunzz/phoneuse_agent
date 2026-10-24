@@ -1,0 +1,43 @@
+# Phone Use gateway (hosted MCP)
+
+Claude connects here over remote MCP with an API key. The gateway routes tool calls to our hardware rigs, meters usage per key, and hands out live-feed links. See [../docs/PLAN.md](../docs/PLAN.md) for the architecture and the contracts.
+
+## Run locally with the simulated rig
+
+```sh
+cd gateway && bun install
+bun run admin create-key "my laptop"     # prints pu_... once
+bun run admin create-rig "rig 1"         # prints rig_... once
+bun run dev                                  # http://127.0.0.1:8787
+# in another terminal, from the repo root:
+RIG_TOKEN=rig_... uv run rig_agent.py --backend sim
+```
+
+Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
+
+## Connect Claude
+
+```sh
+claude mcp add --transport http phoneuse http://127.0.0.1:8787/mcp --header "Authorization: Bearer pu_..."
+```
+
+Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_disconnect`, `usage_get`.
+
+## Deploying
+
+The gateway keeps rig queues, leases and frames in memory, so run it as **one long-lived Bun process** (Fly.io, Railway, a VM). It does not fit per-request serverless. Set `HOST=0.0.0.0`, `PORT`, `PUBLIC_URL=https://…` (used in live-feed links) and `DATA_DIR` (a persistent volume for `store.json` and `usage.jsonl`). Terminate TLS in front of it. The rig agent refuses plain `http` to non-local gateways.
+
+## Environment
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `HOST` / `PORT` | `127.0.0.1` / `8787` | Listen address |
+| `PUBLIC_URL` | `http://HOST:PORT` | Base for live-feed links |
+| `DATA_DIR` | `./data` | API keys/rigs (hashed) and the usage ledger |
+
+## Test
+
+```sh
+bun test        # hub unit tests + end-to-end: gateway + sim rig_agent.py (via uv) + MCP client
+bun run typecheck
+```

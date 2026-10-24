@@ -8,3 +8,4 @@ events.jsonl
 demonstrations/
 
 .playwright-mcp/
+.venv/

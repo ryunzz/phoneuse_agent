@@ -16,8 +16,8 @@ The phone console now uses the official [Claude Agent SDK for Python](https://gi
 
 ```sh
 claude auth login
-.venv-voice/bin/python -m pip install -r requirements-voice.txt
-.venv-voice/bin/python harness.py --serve --iphone
+uv sync --extra voice
+uv run harness.py --serve --iphone
 ```
 
 Build the two Swift helpers using the instructions below if `.build/phone-capture` and `.build/phone-action` do not exist. Open [the local console](http://127.0.0.1:8765/), unlock iPhone Mirroring, and use **Ask Claude to use your phone**:
@@ -35,18 +35,18 @@ Runs are stored in `demonstrations/<episode-id>/`, including `agent.jsonl`, numb
 
 Authenticated endpoints: `POST /agent/start` with `{"instruction":"..."}`, `POST /agent/stop` with `{}`. `GET /agent/status` returns run state and recent progress. These use the same loopback and console authentication boundary as the existing harness.
 
-Verified on 2026-10-24: 41 tests pass in `.venv-voice`. A browser recording of synthetic speech went through the actual local Whisper endpoint, populated the phone-task field without starting a run, and then launched Claude through the Run button. Claude used the real screenshot tool, correctly reported the locked Mirroring screen, and took no phone actions. A separate live run verified Stop, duplicate-run rejection, and manual-control exclusion. Your actual microphone and an unlocked-phone action task still need a live try.
+Verified on 2026-10-24: 45 tests pass. A browser recording of synthetic speech went through the actual local Whisper endpoint, populated the phone-task field without starting a run, and then launched Claude through the Run button. Claude used the real screenshot tool, correctly reported the locked Mirroring screen, and took no phone actions. A separate live run verified Stop, duplicate-run rejection, and manual-control exclusion. Your actual microphone and an unlocked-phone action task still need a live try.
 
-The attached photo identifies an Original Prusa i3 MK2 with an MK42 heatbed. It does not identify the controlling computer, connection, firmware revision, or any installed modifications. This harness runs locally with Python 3.10+ and no Python dependencies.
+The attached photo identifies an Original Prusa i3 MK2 with an MK42 heatbed. It does not identify the controlling computer, connection, firmware revision, or any installed modifications. This harness runs locally with Python 3.12+.
 
 ## Try it now
 
 ```sh
 cd /Users/nikhi/compiled-16
-python3 harness.py status
-python3 harness.py 'jog x 5'
-python3 harness.py --execute 'jog x 5'
-python3 harness.py --serve
+uv run harness.py status
+uv run harness.py 'jog x 5'
+uv run harness.py --execute 'jog x 5'
+uv run harness.py --serve
 ```
 
 Open [the local console](http://127.0.0.1:8765). The default is **simulation**: it validates commands and records receipts without contacting hardware. Preview and confirm a command to simulate dispatch. The console shows the mode on every response.
@@ -57,18 +57,17 @@ Open [the local console](http://127.0.0.1:8765). The default is **simulation**: 
 
 The integrated [whisper.cpp](https://github.com/ggml-org/whisper.cpp) backend runs Whisper `base.en` locally with Apple Silicon acceleration. Silero VAD filters recordings with no speech. Browser `getUserMedia` / `MediaRecorder` captures up to 30 seconds; authenticated `POST /transcribe` sends audio only to the local harness. PyAV decodes it into bounded 16 kHz mono PCM. A private temporary WAV and transcript are deleted after each transcription, including failures. No desktop dictation app, cloud transcription, account, or API key is used.
 
-The runtime is isolated in `.venv-voice` using Python 3.12. Setup:
+The Python side is managed with [uv](https://docs.astral.sh/uv/). Voice dependencies are the optional `voice` extra. Setup:
 
 ```sh
 brew install whisper-cpp
-python3.12 -m venv .venv-voice
-.venv-voice/bin/python -m pip install -r requirements-voice.txt
-.venv-voice/bin/python speech.py
-.venv-voice/bin/python harness.py --serve
+uv sync --extra voice
+uv run speech.py
+uv run harness.py --serve
 ```
 
 The setup command downloads the base.en and Silero VAD models to `.models/`. Normal transcription uses only local files and never downloads models.
-After setup, `python3 harness.py --serve` automatically relaunches in `.venv-voice` when needed, so the audio decoder is available even when the console is started from the system Python.
+Older checkouts with a `.venv-voice` directory still work: `harness.py --serve` relaunches inside it when present.
 
 Open [the console](http://127.0.0.1:8765). Allow microphone access when prompted. Hold **Option+Space**, speak, and release; or click Record, speak, then Stop. If you release the shortcut while the first permission prompt is open, hold it again after granting access. The shortcut works while the console has focus; it is not a system-wide dictation shortcut. Losing focus stops a recording. Review the transcript, then press Enter to preview. The microphone is released when recording stops, errors, or the page closes. Typed prompts still work without the SDK. Recordings are capped at 4 MB / 30 seconds; concurrent transcription is rejected rather than queued. Whisper can mishear axis names, signs, and numbers: review both the transcript and interpreted action. A transcript never authorizes hardware execution.
 
@@ -92,7 +91,7 @@ The prompt parser is deterministic and constrained. Say the axis and numeric dis
 CLI and agents can use the same interpreter:
 
 ```sh
-python3 harness.py --prompt 'Move the x axis by five millimeters.'
+uv run harness.py --prompt 'Move the x axis by five millimeters.'
 ```
 
 ```json
@@ -110,7 +109,7 @@ Build and run:
 ```sh
 mkdir -p .build
 swiftc -parse-as-library PhoneCapture.swift -o .build/phone-capture
-.venv-voice/bin/python harness.py --serve --iphone
+uv run harness.py --serve --iphone
 ```
 
 Open iPhone Mirroring on the Mac, complete its Mac-login authentication, and let it connect to the nearby iPhone. Allow macOS screen-capture permission if requested. The harness captures only the window belonging to `com.apple.ScreenContinuity` titled `iPhone Mirroring`, approximately twice per second. It never substitutes a capture of the whole Mac desktop. Mirroring's own login/connection screens are also part of that window: **a fresh window frame does not by itself prove an unlocked, connected phone**. Check the image.
@@ -147,8 +146,8 @@ Use the adapter that matches the actual existing setup. Only one process should 
 Set `OCTOPRINT_URL` to its actual base URL, and `OCTOPRINT_API_KEY` through your local secret manager/environment. Do not commit the key. Then:
 
 ```sh
-python3 harness.py --live status
-python3 harness.py --live --serve
+uv run harness.py --live status
+uv run harness.py --live --serve
 ```
 
 The adapter uses the documented [printer API](https://docs.octoprint.org/en/main/api/printer.html) and [job API](https://docs.octoprint.org/en/main/api/job.html). OctoPrint enforces its permissions and profile. Motion/heating requires its ready/idle report. A submitted receipt means the controller accepted the request; it does not prove a completed move or reached temperature.
@@ -174,7 +173,7 @@ The bridge must own transport/authentication, state checks, unit conversion, hom
 An agent can invoke the CLI or maintain a JSON-lines subprocess:
 
 ```sh
-python3 harness.py --agent
+uv run harness.py --agent
 ```
 
 Send one object per line:
@@ -194,7 +193,7 @@ Receipts and dispatch intents append to `events.jsonl`. A dispatch intent withou
 ## Verify
 
 ```sh
-.venv-voice/bin/python -m unittest discover -s tests -v
+uv run python -m unittest discover -s tests -v
 ```
 
 Automated checks cover command/spoken parsing, spoken numbers, ambiguous prompts, bounds, previews, simulation, state gates, API payloads, bridge invocation, and uncertain partial failures. Hardware connection, physical motion, and real microphone speech still require testing with the actual setup.
@@ -210,7 +209,7 @@ Build both helpers, then start (or restart) the server:
 ```sh
 swiftc -parse-as-library PhoneCapture.swift -o .build/phone-capture
 swiftc -parse-as-library PhoneAction.swift -o .build/phone-action
-.venv-voice/bin/python harness.py --serve --iphone
+uv run harness.py --serve --iphone
 ```
 
 Open the [local console](http://127.0.0.1:8765/). Unlock iPhone Mirroring and verify the actual phone is visible. Enter the task instruction, task family, and train/evaluation split, then click **Start demonstration**. Click the displayed image to tap. Use the buttons for scroll, text entry, wait, and Home. Mac Accessibility permission is required for the native action helper; screen recording permission is required for capture. Permission or focus failures are recorded as failed/unknown attempts, with no automatic retry.
@@ -236,9 +235,9 @@ The source keeps five numbered frames in `.phone-stream/` in addition to `latest
 Later review does not rewrite the original trace:
 
 ```sh
-python3 episodes.py label demonstrations/EPISODE_ID 1 correct --reviewer human --note 'Verified Settings tap'
-python3 episodes.py label demonstrations/EPISODE_ID 2 mistake --reviewer human
-python3 episodes.py label demonstrations/EPISODE_ID 3 recovery --reviewer human
+uv run episodes.py label demonstrations/EPISODE_ID 1 correct --reviewer human --note 'Verified Settings tap'
+uv run episodes.py label demonstrations/EPISODE_ID 2 mistake --reviewer human
+uv run episodes.py label demonstrations/EPISODE_ID 3 recovery --reviewer human
 ```
 
 Optional `--boxes boxes.json` imports an array of labels on the step's **before image**. Coordinates are normalized to the entire saved image, top-left origin:
@@ -252,7 +251,7 @@ A human or external labeler can provide these annotations. Bounding boxes descri
 Export model-neutral examples:
 
 ```sh
-python3 episodes.py export --output demonstrations/export
+uv run episodes.py export --output demonstrations/export
 ```
 
 This writes `train.jsonl` and `eval.jsonl`. Each example contains the instruction, absolute before-image path, up to four previous actions, and the target action. It excludes current-step after-images, review notes, bounding boxes, outcomes, and correctness labels from the model input. Only correct/recovery steps in explicitly successful, complete episodes are exported. Mistakes stay in the trace and can appear as observed action history for a subsequent recovery, but are not imitation targets. Image hashes are checked. A task family appearing in both splits rejects the export; assign related variants to one family and reserve separate families/starting conditions for evaluation. Do not distribute the same underlying task variants across differently named families to bypass this check.
