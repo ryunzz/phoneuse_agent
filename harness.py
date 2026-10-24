@@ -14,7 +14,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from voice import interpret
@@ -148,9 +148,13 @@ def serve(harness, port, iphone=False):
     from speech import Speech
     from phone_stream import PhoneStream
     from episodes import EpisodeRecorder
+    from phone_agent import PhoneAgent
+    from review import ReviewDashboard
     speech = Speech()
     phone = PhoneStream()
     episodes = EpisodeRecorder(phone)
+    agent = PhoneAgent(phone, episodes)
+    reviews = ReviewDashboard(episodes.root)
     if iphone:
         phone.start()
     token = secrets.token_urlsafe(32)
@@ -177,6 +181,23 @@ def serve(harness, port, iphone=False):
             if self.headers.get('Host') != f'127.0.0.1:{port}':
                 return self.reply(404, {'error': 'Not found'})
             path = urlparse(self.path).path
+            if path.startswith('/admin/api/'):
+                if self.headers.get('X-Harness-Token') != token:
+                    return self.reply(403, {'error': 'Local console authentication required'})
+                try:
+                    query = parse_qs(urlparse(self.path).query)
+                    episode_id = query.get('episode', [''])[0]
+                    if path == '/admin/api/summary':
+                        return self.reply(200, reviews.summary())
+                    if path == '/admin/api/episode':
+                        return self.reply(200, reviews.episode(episode_id))
+                    if path == '/admin/api/image':
+                        return self.reply(200, reviews.image(episode_id, query.get('name', [''])[0]), 'image/jpeg')
+                    return self.reply(404, {'error': 'Not found'})
+                except (ValueError, KeyError, TypeError, OSError):
+                    return self.reply(400, {'error': 'Episode data unavailable or invalid'})
+            if path == '/agent/status':
+                return self.reply(200, agent.status())
             if path == '/iphone/episode':
                 return self.reply(200, episodes.status())
             if path == '/iphone/status':
@@ -186,7 +207,9 @@ def serve(harness, port, iphone=False):
                     return self.reply(200, phone.frame(), 'image/jpeg')
                 except ValueError as error:
                     return self.reply(503, {'error': str(error)})
-            if path != '/':
+            if path == '/admin':
+                return self.reply(200, (ROOT / 'admin.html').read_text().replace('__TOKEN__', token), 'text/html; charset=utf-8')
+            if path not in ('/', '/controller'):
                 return self.reply(404, {'error': 'Not found'})
             self.reply(200, (ROOT / 'console.html').read_text().replace('__TOKEN__', token), 'text/html; charset=utf-8')
 
@@ -201,17 +224,28 @@ def serve(harness, port, iphone=False):
                     if self.headers.get('Content-Type', '').split(';')[0] not in ('audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'):
                         raise ValueError('Unsupported recording format')
                     return self.reply(200, speech.transcribe(self.rfile.read(size)))
-                if not 0 < size <= 4096:
+                if not 0 < size <= (16384 if self.path == '/agent/start' else 4096):
                     raise ValueError('Invalid request size')
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise ValueError('Expected JSON object')
-                if self.path == '/iphone/episode/start':
-                    return self.reply(200, episodes.start(body.get('instruction'), body.get('group'), body.get('split', 'train')))
-                if self.path == '/iphone/episode/action':
-                    return self.reply(200, episodes.step(body.get('action'), body.get('label', 'unreviewed'), body.get('note', ''), body.get('settle_seconds', 0.7)))
-                if self.path == '/iphone/episode/finish':
-                    return self.reply(200, episodes.finish(body.get('outcome'), body.get('note', '')))
+                if self.path == '/admin/api/review':
+                    return self.reply(200, reviews.label(body.get('episode_id'), body.get('step'),
+                                                        body.get('label'), body.get('reviewer'), body.get('note', '')))
+                if self.path == '/agent/start':
+                    return self.reply(200, agent.start(body.get('instruction')))
+                if self.path == '/agent/stop':
+                    return self.reply(200, agent.stop())
+                if self.path.startswith('/iphone/episode/'):
+                    with agent.lock:
+                        if agent.status()['running']:
+                            raise ValueError('Stop the Claude task before using manual controls')
+                        if self.path == '/iphone/episode/start':
+                            return self.reply(200, episodes.start(body.get('instruction'), body.get('group'), body.get('split', 'train')))
+                        if self.path == '/iphone/episode/action':
+                            return self.reply(200, episodes.step(body.get('action'), body.get('label', 'unreviewed'), body.get('note', ''), body.get('settle_seconds', 0.7)))
+                        if self.path == '/iphone/episode/finish':
+                            return self.reply(200, episodes.finish(body.get('outcome'), body.get('note', '')))
                 if self.path in ('/preview', '/prompt'):
                     command = interpret(body.get('prompt')) if self.path == '/prompt' else body.get('command')
                     plan = harness.run(command)
@@ -231,7 +265,7 @@ def serve(harness, port, iphone=False):
                         raise ValueError('Preview expired or already used; preview again')
                     return self.reply(200, harness.run(item[0], execute=True))
                 self.reply(404, {'error': 'Not found'})
-            except (ValueError, TypeError, OSError) as error:
+            except (ValueError, TypeError, OSError, ImportError) as error:
                 self.reply(400, {'error': str(error)})
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
@@ -240,6 +274,9 @@ def serve(harness, port, iphone=False):
     try:
         server.serve_forever()
     finally:
+        agent.stop()
+        if agent.thread:
+            agent.thread.join(timeout=20)
         phone.stop()
         server.server_close()
 

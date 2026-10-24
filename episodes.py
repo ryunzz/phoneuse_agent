@@ -110,7 +110,7 @@ class EpisodeRecorder:
         (folder / name).write_bytes(data)
         return dict(metadata, image=name, sha256=hashlib.sha256(data).hexdigest())
 
-    def step(self, action, label='unreviewed', note='', settle_seconds=0.7):
+    def step(self, action, label='unreviewed', note='', settle_seconds=0.7, before_dispatch=None):
         action = action_payload(action)
         if label not in ('unreviewed', 'correct', 'mistake', 'recovery'):
             raise ValueError('Invalid step label')
@@ -127,6 +127,8 @@ class EpisodeRecorder:
                       'label': label, 'note': note, 'dispatched_at': time.time()}
             append(folder / 'steps.jsonl', intent)
             try:
+                if before_dispatch:
+                    before_dispatch()
                 receipt = self.executor(action, before)
                 ended = time.time()
                 time.sleep(settle_seconds)
