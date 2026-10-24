@@ -1,4 +1,4 @@
-"""Translate a small, explicit spoken grammar; never infer axes or execute text."""
+"""Translate a small, explicit spoken grammar for rig motion; never infer axes or execute text."""
 import re
 
 SMALL = dict(zip('zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(), range(20)))
@@ -47,17 +47,13 @@ def interpret(prompt):
     text = re.sub(r'\b([xyz])-axis\b', r'\1 axis', text)
     text = re.sub(r'^please\s+|\s+please$', '', text).strip()
     aliases = {
-        'what is the printer status': 'status',
-        "what's the printer status": 'status', 'show printer status': 'status',
-        'show temperatures': 'temperatures', 'what are the temperatures': 'temperatures',
-        'home all axes': 'home', 'home the printer': 'home',
-        'cool down': 'cooldown', 'cool down the printer': 'cooldown',
-        'turn off the heaters': 'cooldown', 'turn off heaters': 'cooldown',
-        'pause the print': 'pause', 'resume the print': 'resume', 'cancel the print': 'cancel',
+        'what is the printer status': 'status', "what's the printer status": 'status',
+        'show printer status': 'status', 'what is the rig status': 'status',
+        'home all axes': 'home', 'home the printer': 'home', 'home the rig': 'home',
     }
     if text in aliases:
         return aliases[text]
-    if text in ('status', 'temperatures', 'home', 'cooldown', 'pause', 'resume', 'cancel'):
+    if text in ('status', 'home'):
         return text
     match = re.fullmatch(r'home (?:the )?([xyz])(?: axis)?', text)
     if match:
@@ -74,7 +70,4 @@ def interpret(prompt):
         if float(value) <= 0:
             raise ValueError('Use a positive distance with raise/lower')
         return 'jog z ' + ('-' if match[1] == 'lower' else '') + value
-    match = re.fullmatch(r'(?:heat|set) (?:the )?(nozzle|bed)(?: temperature)?(?: to)? (.+?)(?: (?:degrees(?: celsius)?|celsius|c))?', text)
-    if match:
-        return f'heat {match[1]} {number(match[2])}'
-    raise ValueError('Unrecognized voice prompt. Try “move the x axis by five millimeters” or “set the bed temperature to sixty degrees”. Use one explicit command; name the axis.')
+    raise ValueError('Unrecognized voice prompt. Try “move the x axis by five millimeters” or “home all axes”. Use one explicit command; name the axis.')

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Local printer command harness. Standard library only; defaults to simulation."""
+"""Local rig harness: bounded printer motion for the stylus rig, plus the operator console.
+
+Standard library only; defaults to simulation. Heating and print-job commands were removed:
+the printer is a stylus gantry, not a printer, in this project.
+"""
 import argparse
 import json
 import math
@@ -14,58 +18,45 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from voice import interpret
 
 ROOT = Path(__file__).resolve().parent
-HELP = 'status | temperatures | home [x y z] | jog x 5 | heat nozzle 200 | heat bed 60 | cooldown | pause | resume | cancel'
+HELP = 'status | home [x y z] | jog x 5'
 
 
 def parse(text):
     if not isinstance(text, str) or len(text) > 200:
         raise ValueError('Command must be text of at most 200 characters')
     words = text.lower().strip().split()
-    if words and words[-1] in ('degrees', 'celsius', 'millimeters', 'mm'):
+    if words and words[-1] in ('millimeters', 'mm'):
         words.pop()
-    if len(words) == 1 and words[0] in ('status', 'temperatures', 'cooldown', 'pause', 'resume', 'cancel'):
-        return {'action': words[0]}
+    if words == ['status']:
+        return {'action': 'status'}
     if words and words[0] == 'home' and all(w in ('x', 'y', 'z') for w in words[1:]):
         return {'action': 'home', 'axes': sorted(set(words[1:] or ['x', 'y', 'z']))}
-    if len(words) == 3 and words[0] in ('jog', 'heat'):
+    if len(words) == 3 and words[0] == 'jog':
         try:
             number = float(words[2])
         except ValueError:
             raise ValueError('Use a numeric value, for example: jog x 5') from None
         if not math.isfinite(number):
             raise ValueError('Value must be finite')
-        if words[0] == 'jog' and words[1] in ('x', 'y', 'z') and 0 < abs(number) <= 10:
+        if words[1] in ('x', 'y', 'z') and 0 < abs(number) <= 10:
             return {'action': 'jog', 'axis': words[1], 'mm': number}
-        if words[0] == 'heat' and words[1] in ('nozzle', 'bed'):
-            maximum = 240 if words[1] == 'nozzle' else 100
-            if 0 <= number <= maximum:
-                return {'action': 'heat', 'heater': words[1], 'celsius': number}
-        raise ValueError('Jog: nonzero +/-10 mm maximum. Nozzle: 0–240 C. Bed: 0–100 C.')
+        raise ValueError('Jog: name an axis and a nonzero distance of at most 10 mm.')
     raise ValueError('Unknown command. ' + HELP)
 
 
 def operations(command):
     action = command['action']
-    if action in ('status', 'temperatures'):
+    if action == 'status':
         return [('GET', '/api/printer', None)]
     if action == 'home':
         return [('POST', '/api/printer/printhead', {'command': 'home', 'axes': command['axes']})]
-    if action == 'jog':
-        return [('POST', '/api/printer/printhead', {'command': 'jog', command['axis']: command['mm'], 'absolute': False, 'speed': 300})]
-    if action == 'heat':
-        heater = command['heater']
-        body = {'command': 'target', 'targets': {'tool0': command['celsius']}} if heater == 'nozzle' else {'command': 'target', 'target': command['celsius']}
-        return [('POST', '/api/printer/' + ('tool' if heater == 'nozzle' else 'bed'), body)]
-    if action == 'cooldown':
-        return operations({'action': 'heat', 'heater': 'nozzle', 'celsius': 0}) + operations({'action': 'heat', 'heater': 'bed', 'celsius': 0})
-    body = {'command': 'pause', 'action': action} if action in ('pause', 'resume') else {'command': 'cancel'}
-    return [('POST', '/api/job', body)]
+    return [('POST', '/api/printer/printhead', {'command': 'jog', command['axis']: command['mm'], 'absolute': False, 'speed': 300})]
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -101,7 +92,7 @@ class Harness:
 
     def run(self, text, execute=False):
         command = parse(text)
-        read_only = command['action'] in ('status', 'temperatures')
+        read_only = command['action'] == 'status'
         plan = {'command': command, 'mode': 'live' if self.live else 'simulation', 'operations': operations(command)}
         if not read_only and not execute:
             return {**plan, 'outcome': 'preview', 'requires_confirmation': True}
@@ -123,11 +114,11 @@ class Harness:
                     if not isinstance(result, dict) or result.get('ok') is not True:
                         raise ValueError('Bridge must return a JSON object with ok: true')
                 else:
-                    if command['action'] in ('home', 'jog', 'heat'):
+                    if command['action'] in ('home', 'jog'):
                         state = self.request('GET', '/api/printer', None)
                         flags = state.get('state', {}).get('flags', {})
                         if flags.get('operational') is not True or any(flags.get(k) for k in ('printing', 'paused', 'pausing', 'cancelling', 'error', 'closedOrError')) or flags.get('ready') is not True:
-                            raise ValueError('Printer must report ready and idle before motion or heating')
+                            raise ValueError('Printer must report ready and idle before motion')
                     result = []
                     for method, path, body in operations(command):
                         result.append(self.request(method, path, body))
@@ -149,12 +140,11 @@ def serve(harness, port, iphone=False):
     from phone_stream import PhoneStream
     from episodes import EpisodeRecorder
     from phone_agent import PhoneAgent
-    from review import ReviewDashboard
     speech = Speech()
     phone = PhoneStream()
     episodes = EpisodeRecorder(phone)
-    agent = PhoneAgent(phone, episodes)
-    reviews = ReviewDashboard(episodes.root)
+    # Claude runs as a client of the gateway MCP (GATEWAY_URL, PHONEUSE_API_KEY); review lives at the gateway's /review.
+    agent = PhoneAgent()
     if iphone:
         phone.start()
     token = secrets.token_urlsafe(32)
@@ -181,21 +171,6 @@ def serve(harness, port, iphone=False):
             if self.headers.get('Host') != f'127.0.0.1:{port}':
                 return self.reply(404, {'error': 'Not found'})
             path = urlparse(self.path).path
-            if path.startswith('/admin/api/'):
-                if self.headers.get('X-Harness-Token') != token:
-                    return self.reply(403, {'error': 'Local console authentication required'})
-                try:
-                    query = parse_qs(urlparse(self.path).query)
-                    episode_id = query.get('episode', [''])[0]
-                    if path == '/admin/api/summary':
-                        return self.reply(200, reviews.summary())
-                    if path == '/admin/api/episode':
-                        return self.reply(200, reviews.episode(episode_id))
-                    if path == '/admin/api/image':
-                        return self.reply(200, reviews.image(episode_id, query.get('name', [''])[0]), 'image/jpeg')
-                    return self.reply(404, {'error': 'Not found'})
-                except (ValueError, KeyError, TypeError, OSError):
-                    return self.reply(400, {'error': 'Episode data unavailable or invalid'})
             if path == '/agent/status':
                 return self.reply(200, agent.status())
             if path == '/iphone/episode':
@@ -207,8 +182,6 @@ def serve(harness, port, iphone=False):
                     return self.reply(200, phone.frame(), 'image/jpeg')
                 except ValueError as error:
                     return self.reply(503, {'error': str(error)})
-            if path == '/admin':
-                return self.reply(200, (ROOT / 'admin.html').read_text().replace('__TOKEN__', token), 'text/html; charset=utf-8')
             if path not in ('/', '/controller'):
                 return self.reply(404, {'error': 'Not found'})
             self.reply(200, (ROOT / 'console.html').read_text().replace('__TOKEN__', token), 'text/html; charset=utf-8')
@@ -229,9 +202,6 @@ def serve(harness, port, iphone=False):
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise ValueError('Expected JSON object')
-                if self.path == '/admin/api/review':
-                    return self.reply(200, reviews.label(body.get('episode_id'), body.get('step'),
-                                                        body.get('label'), body.get('reviewer'), body.get('note', '')))
                 if self.path == '/agent/start':
                     return self.reply(200, agent.start(body.get('instruction')))
                 if self.path == '/agent/stop':
@@ -270,7 +240,7 @@ def serve(harness, port, iphone=False):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.daemon_threads = True
-    print(f'Printer console: {origin} ({"LIVE" if harness.live else "SIMULATION"})', flush=True)
+    print(f'Rig console: {origin} (printer {"LIVE" if harness.live else "SIMULATION"})', flush=True)
     try:
         server.serve_forever()
     finally:
