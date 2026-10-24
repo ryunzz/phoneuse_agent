@@ -1,15 +1,17 @@
 # Phone Use: product flow, contracts, and work split
 
+We are building a **VLA (vision-language-action) model for phones** and selling access to **cloud phones**: real phones on our hardware rigs that any agent can drive over MCP. Usage is billed in tokens. Every run also produces training traces for the VLA.
+
 ## Product flows
 
 ### A. Hosted MCP ("phone use as a service")
 
-1. A developer gets an API key from us (`pu_…`). For now an admin CLI creates the key. A signup page comes later.
+1. A developer gets an API key from us (`pu_…`). For now there's one key, issued with `bun run admin create-key`. Self-serve signup isn't planned yet.
 2. They add our **remote MCP server** to Claude (Claude Code, Claude Desktop, or the MCP directory) by passing the URL `https://<gateway>/mcp` and the header `Authorization: Bearer pu_…`. There's nothing to install locally.
 3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone, iPhone Mirroring and the stylus robot (the Prusa printer harness).
 4. Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_disconnect`, `usage_get`.
 5. `phone_live_feed` returns a short-lived URL. Opening it shows a live MJPEG view of the phone in any browser.
-6. Every tool call is metered per API key: calls, images returned and rig-seconds held. That's how we track usage and bill. We can't see the client's own Claude tokens. We *can* estimate the image tokens we send back.
+6. Every tool call is metered in **tokens** per API key: a base price per tool plus the estimated image tokens of the screenshots we return. Failed calls are free. `/dashboard` shows tokens billed, image tokens, calls, rig time, and a per-minute chart. Each tool result also says what it cost.
 7. Users who aren't on MCP get the same rig through a web console (later: voice mode via the existing whisper.cpp stack).
 
 ### B. TestFlight data-collection app (paid in ETH)
@@ -60,7 +62,7 @@ The workstreams are independent once the contracts above are fixed.
 
 | # | Workstream | Deliverable | Depends on |
 | --- | --- | --- | --- |
-| 1 | **Gateway + hosted MCP** | `gateway/`: API keys, usage, rig routing, MCP tools, live feed, deploy | contracts only |
+| 1 | **Gateway + hosted MCP** | `gateway/`: API key, token metering + dashboard, rig routing, MCP tools, live feed, deploy | contracts only |
 | 2 | **Rig agent** | `rig_agent.py`: connects the harness + capture to the gateway | contracts only |
 | 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements the `stylus` backend. | action contract |
 | 4 | **Perception** (optional quality boost) | Grounding model (Baseten) and fast verify (Groq) behind a `phone_find(element)` tool | gateway tool shape |
@@ -68,4 +70,27 @@ The workstreams are independent once the contracts above are fixed.
 | 6 | **Tasks + payouts backend** | Task catalog, submission upload, verification, ETH payout (viem, Base Sepolia) | none |
 | 7 | **Web console + voice** | Non-MCP browser UI on the gateway; voice reuses `speech.py` | gateway |
 
-Suggested owners: Nikhil (#3, live test of #2), Ryan + Bella (#4, camera calibration), floater (#5/#6), Claude (#1, #2, then #6).
+### Owners
+
+| Owner | Streams |
+| --- | --- |
+| **Nikhil** | #5 TestFlight app, #6 tasks + ETH payouts |
+| **Vikram + Vela** | #3 stylus robot and calibration (the hardware rig) |
+| **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLA traces and training |
+
+The hardware team says when the rig is ready. Then we run rigorous live tests: `--backend stylus` through the gateway with real taps, latency and accuracy measurements.
+
+## Token pricing (gateway/src/usage.ts)
+
+| Tool | Base tokens |
+| --- | --- |
+| `phone_screenshot` | 50 |
+| `phone_tap`, `phone_scroll`, `phone_type`, `phone_home` | 100 |
+| `phone_live_feed` | 200 |
+| `phone_connect`, `phone_disconnect`, `rigs_list`, `usage_get` | 0 |
+
+Billed tokens = base + estimated image tokens (width × height / 750 after downscaling to 1568 px). A 636×1402 Mirroring frame is about 1,189 image tokens.
+
+## Tooling
+
+Bun for the gateway (`bun install`, `bun test`, `bun run dev`). uv for Python (`uv sync --extra voice`, `uv run …`).
