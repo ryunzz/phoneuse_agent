@@ -72,6 +72,20 @@ final class AppModel {
         return nil
     }
 
+    /// No typing: find the Mac on the Wi-Fi, sign up for a key, and save both.
+    func connectAutomatically(name: String) async -> String? {
+        do {
+            let baseURL = try await Discovery.findGateway()
+            let pairing = try await APIClient.enroll(at: baseURL, name: name)
+            pairing.save()
+            self.pairing = pairing
+            await refresh()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func unpair() {
         Pairing.clear()
         pairing = nil
@@ -82,18 +96,35 @@ final class AppModel {
     // MARK: Server state
 
     func refresh() async {
-        guard let client else { return }
+        guard pairing != nil else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {
-            async let tasks = client.tasks()
-            async let submissions = client.submissions()
-            self.tasks = try await tasks
-            self.submissions = try await submissions
-            connectionError = nil
+            try await load()
         } catch {
             connectionError = error.localizedDescription
+            // The Mac's Wi-Fi IP may have changed; look for it again under a new address.
+            guard case APIError.unreachable = error, await followMovedMac() else { return }
+            do { try await load() } catch { connectionError = error.localizedDescription }
         }
+    }
+
+    private func load() async throws {
+        guard let client else { return }
+        async let tasks = client.tasks()
+        async let submissions = client.submissions()
+        self.tasks = try await tasks
+        self.submissions = try await submissions
+        connectionError = nil
+    }
+
+    /// Looks for the gateway on the LAN again and keeps the same key under the new address.
+    private func followMovedMac() async -> Bool {
+        guard let current = pairing, let found = try? await Discovery.findGateway(timeout: 5), found != current.baseURL else { return false }
+        let moved = Pairing(baseURL: found, key: current.key)
+        moved.save()
+        pairing = moved
+        return true
     }
 
     // MARK: Attempts
@@ -154,6 +185,7 @@ final class AppModel {
 
     /// Create (idempotent on attempt ID) → upload → verify checksum. Safe to call again after any failure.
     func submit(_ id: UUID) async {
+        if connectionError != nil { await refresh() }
         guard let client, let attempt = attempt(id), let file = videoURL(for: attempt), let contentType = attempt.videoContentType else { return }
         update(id) {
             $0.phase = .uploading

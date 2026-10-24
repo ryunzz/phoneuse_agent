@@ -66,6 +66,23 @@ struct APIClient {
         }
     }
 
+    /// Asks a gateway started with `bun run phone` for this phone's own contributor key.
+    static func enroll(at baseURL: URL, name: String) async throws -> Pairing {
+        struct Body: Decodable { let key: String }
+        var request = URLRequest(url: baseURL.appendingPathComponent("c/v1/enroll"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["name": name])
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.unreachable(error.localizedDescription)
+        }
+        let key = try APIClient(pairing: Pairing(baseURL: baseURL, key: "")).decode(data, response, as: Body.self).key
+        return Pairing(baseURL: baseURL, key: key)
+    }
+
     func tasks() async throws -> [PhoneTask] {
         struct Body: Decodable { let tasks: [PhoneTask] }
         return try await perform(request("c/v1/tasks"), as: Body.self).tasks
