@@ -29,7 +29,7 @@
  │ VLA trace recorder (episodes.py format) · human review (/review)             │
  │ Provider slots (env-selected adapters):                                      │
  │   PAYMENTS (x402) · GROUNDING (Gemini / Bitdeer) · VOICE (Cartesia)          │
- │   STORE (JSON files → Convex / Tiger Data) · HOSTING (Vultr + GoDaddy)       │
+ │   VLA (phone_do → our model) · STORE (JSON → Convex) · URL (cloudflared)     │
  └───────────────▲──────────────────────────────────────────────────────────────┘
                  │ outbound long-poll (rig never exposes a port)
  ┌───────────────┴──────── Rig agent (rig_agent.py, uv) ────────────────────────┐

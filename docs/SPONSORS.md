@@ -13,7 +13,7 @@ Source: [cal-hacks-13-0.devpost.com](https://cal-hacks-13-0.devpost.com/), pulle
 
 ## Integration principle
 
-Every sponsor integration is an **adapter behind an interface**, chosen by env (`<CAPABILITY>_PROVIDER=<vendor>` plus that vendor's key). Swapping vendors to chase a track means adding one file and changing env, not touching the core. Capabilities: Payments, Hosting, Grounding/Vision model, Voice, Usage/Trace store, Agent wrapper.
+Every sponsor integration is an **adapter behind an interface**, chosen by env (`<CAPABILITY>_PROVIDER=<vendor>` plus that vendor's key). Swapping vendors to chase a track means adding one file and changing env, not touching the core. Capabilities: Payments, VLA (`VLA_PROVIDER`), Grounding/Vision model, Voice, Usage/Trace store, Agent wrapper.
 
 ## Track map
 
@@ -40,8 +40,8 @@ Every sponsor integration is an **adapter behind an interface**, chosen by env (
 | **Fetch.ai** · Best Use of Fetch.ai | $1.5k / $1k / $500 | ✅ | Register a phone-use agent on Agentverse (Chat Protocol) that calls our gateway | Ryan |
 | **Atlassian** · Best Agent / Best Security Solution for Agents | AirPods Max | ✅ | Best Agent: the phone agent. Security: key-scoped leases, recorded and reviewed actions. Name the track in the description. | Ryan |
 | **Microsoft** · Built for the Real World / Customer Impact | Surface laptops + FDE talk | ✅ | Real phones and real apps, where APIs don't exist | Ryan |
-| **MLH** · Best Use of Vultr | M5Stack Tab5 | ✅ | Host the gateway on Vultr (`HOSTING` = Vultr VM) | Ryan |
-| **MLH** · Best Domain (GoDaddy Registry) | Gift card | ✅ | Register a domain for the gateway / live links | Ryan |
+| **MLH** · Best Use of Vultr | M5Stack Tab5 | ❌ | Dropped: the user doesn't need hosting. The gateway runs on the rig Mac behind a free `cloudflared` tunnel. | — |
+| **MLH** · Best Domain (GoDaddy Registry) | Gift card | 🧪 | Optional: a domain in front of the tunnel | Ryan |
 | **MLH** · Best Use of Gemini API | Swag | ✅ | `GROUNDING_PROVIDER=gemini`: `phone_find("Settings icon")` → (x, y) | Ryan |
 | **MLH** · Commit Fellowship | Interview + mentorship | ✅ | Startup angle. Opt in at submission **and** fill in the supplemental form. | Ryan |
 | **Meta** · Bringing People Closer Together with AI | Round 2 at Menlo Park | 🎬 | Demo: agent helps grandma video-call or message family on her phone | Ryan |
@@ -63,7 +63,7 @@ Every sponsor integration is an **adapter behind an interface**, chosen by env (
 
 1. **Core demo works end to end** on the real phone via Mirroring, plus the stylus if the hardware lands. Record the video early.
 2. **x402 payments adapter** (Coinbase ×2 tracks, and the business model).
-3. **Deploy on Vultr + GoDaddy domain.**
+3. **Public URL via `cloudflared tunnel --url http://localhost:8787`** (no hosting needed).
 4. **Gemini grounding adapter** (`phone_find`).
 5. **Fetch.ai Agentverse wrapper.**
 6. Demo-choice tracks (Hyphenate / Visa / Meta / Capital One): pick one demo task that hits the most of them and say so in the write-up.
