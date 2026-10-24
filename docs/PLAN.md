@@ -14,13 +14,15 @@ We are building a **VLA (vision-language-action) model for phones** and selling 
 6. Every tool call is metered in **tokens** per API key: a base price per tool plus the estimated image tokens of the screenshots we return. Failed calls are free. `/dashboard` shows tokens billed, image tokens, calls, rig time, and a per-minute chart. Each tool result also says what it cost.
 7. Users who aren't on MCP get the same rig through a web console (later: voice mode via the existing whisper.cpp stack).
 
-### B. TestFlight data-collection app (paid in ETH)
+### B. iPhone task collection app (local, Xcode install)
 
-1. A person installs the TestFlight app and connects an Ethereum wallet address.
-2. The app shows a task prompt ("Turn on Dark Mode in Settings").
-3. They start a **ReplayKit broadcast**. That's iOS system screen recording, so it covers all apps, not just ours. Then they do the task on their real phone.
-4. A Broadcast Upload Extension sends sampled frames and timestamps to our backend. iOS does **not** expose touches made in other apps. Actions get inferred from frame diffs or a VLM later. Verification checks the final frames against the task's success condition (VLM judge plus human spot checks).
-5. A verified run triggers an ETH payout (testnet first) to their wallet. The trace goes into the same episode/export format that `episodes.py` already defines, so it feeds flow A.
+1. A contributor installs the app from Xcode on their own iPhone. It is not published to TestFlight or the App Store.
+2. The app shows a task ("Change the translation language in Apple Translate").
+3. They record the screen with iOS screen recording while doing the task, then pick the recording in the app.
+4. The app uploads it over Wi-Fi to the gateway on our Mac. We review it on `/review`, and the decision shows up in the app. iOS does **not** expose touches made in other apps, so a submission is a demonstration video, not an action trace.
+5. Payouts (ETH or otherwise) and the ReplayKit broadcast extension are deferred.
+
+Full spec: [IPHONE_APP_PLAN.md](IPHONE_APP_PLAN.md).
 
 ## Contracts (what lets everyone work in parallel)
 
@@ -66,7 +68,7 @@ The workstreams are independent once the contracts above are fixed.
 | 2 | **Rig agent** | `rig_agent.py`: connects the harness + capture to the gateway | contracts only |
 | 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements the `stylus` backend. | action contract |
 | 4 | **Perception** (optional quality boost) | Grounding model (Baseten) and fast verify (Groq) behind a `phone_find(element)` tool | gateway tool shape |
-| 5 | **TestFlight app** | SwiftUI app + Broadcast Upload Extension, task list, wallet address entry | submission API (#6) |
+| 5 | **iPhone task app** | SwiftUI app in `ios/`: tasks, screen-recording import, upload, review status | submission API (#6) |
 | 6 | **Tasks + payouts backend** | Task catalog, submission upload, verification, ETH payout (viem, Base Sepolia) | none |
 | 7 | **Web console + voice** | Non-MCP browser UI on the gateway; voice reuses `speech.py` | gateway |
 
@@ -74,7 +76,7 @@ The workstreams are independent once the contracts above are fixed.
 
 | Owner | Streams |
 | --- | --- |
-| **Nikhil** | #5 TestFlight app, #6 tasks + ETH payouts |
+| **Nikhil** | #5 iPhone task app, #6 tasks + submission review |
 | **Vikram + Vela** | #3 stylus robot and calibration (the hardware rig) |
 | **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLA traces and training |
 
