@@ -13,8 +13,9 @@ import sys
 TOUCH_Z = 39.3
 # Where the tip lands in the rectified OAK frame when hovering at TOUCH_Z + HOVER_MM: the bottom edge, below the
 # camera's view of the stylus itself. To hit something seen at pixel (u, v), move the head by about
-# X += (u - 315) / 8.65 and Y += (710 - v) / 8.65 mm (8.65 px/mm on the glass at this height).
+# X += (u - 315) / PX_PER_MM and Y += (710 - v) / PX_PER_MM.
 TIP_PIXEL = (315, 710)
+PX_PER_MM = 8.65   # on the glass, camera at hover height
 HOVER_MM = 3.0
 BOUNDS = {'X': (0.0, 250.0), 'Y': (0.0, 210.0)}
 
