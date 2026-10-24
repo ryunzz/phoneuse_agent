@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { createWriteStream, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { commandResultSchema } from './actions.js';
@@ -10,11 +12,13 @@ import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { RigHub } from './rigs.js';
 import type { Store } from './store.js';
+import { createSubmissionSchema, loadTasks, SubmissionError, SubmissionStore, VIDEO_TYPES } from './submissions.js';
 import { UsageLedger } from './usage.js';
 
 export interface Gateway {
   readonly server: Server;
   readonly hub: RigHub;
+  readonly submissions: SubmissionStore;
 }
 
 class HttpError extends Error {
@@ -56,12 +60,54 @@ async function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
   }
 }
 
+/** Streams a request body to disk, hashing as it goes, so large videos never sit in memory. */
+function streamToFile(req: IncomingMessage, file: string, limit: number): Promise<{ bytes: number; sha256: string }> {
+  return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (declared > limit) return reject(new HttpError(413, 'Recording is too large'));
+    const hash = createHash('sha256');
+    const out = createWriteStream(file, { mode: 0o600 });
+    let bytes = 0;
+    let failed = false;
+    const fail = (error: unknown) => {
+      if (failed) return;
+      failed = true;
+      out.destroy();
+      rmSync(file, { force: true });
+      reject(error);
+    };
+    req.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > limit) {
+        fail(new HttpError(413, 'Recording is too large'));
+        req.destroy();
+        return;
+      }
+      hash.update(chunk);
+      if (!out.write(chunk)) {
+        req.pause();
+        out.once('drain', () => req.resume());
+      }
+    });
+    req.on('aborted', () => fail(new HttpError(400, 'Upload interrupted')));
+    req.on('error', fail);
+    out.on('error', fail);
+    req.on('end', () => {
+      if (failed) return;
+      if (declared && bytes !== declared) return fail(new HttpError(400, 'Upload interrupted'));
+      out.end(() => resolve({ bytes, sha256: hash.digest('hex') }));
+    });
+  });
+}
+
 export function createGateway(config: Config, store: Store): Gateway {
   const { limits } = config;
   const hub = new RigHub(() => new Map(store.listRigs().map((rig) => [rig.id, rig.name])), limits);
   const usage = new UsageLedger(`${config.dataDir}/usage.jsonl`);
   const live = new LiveViews(limits.liveTokenMs);
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const submissions = new SubmissionStore(`${config.dataDir}/submissions`, loadTasks(config.tasksFile));
+  const contributorLimiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
 
   const requireKey = (req: IncomingMessage): string => {
     const secret = bearerToken(req, 'pu');
@@ -76,6 +122,14 @@ export function createGateway(config: Config, store: Store): Gateway {
     const rig = secret ? store.findRigBySecret(secret) : null;
     if (!rig) throw new HttpError(401, 'Missing or invalid rig token');
     return rig.id;
+  };
+
+  const requireContributor = (req: IncomingMessage): string => {
+    const secret = bearerToken(req, 'ct');
+    const person = secret ? store.findContributorBySecret(secret) : null;
+    if (!person) throw new HttpError(401, 'Missing or invalid contributor key (pair the app again)');
+    if (!contributorLimiter.allow(person.id)) throw new HttpError(429, 'Rate limit exceeded; slow down');
+    return person.id;
   };
 
   const handleMcp = async (req: IncomingMessage, res: ServerResponse, keyId: string): Promise<void> => {
@@ -136,6 +190,41 @@ export function createGateway(config: Config, store: Store): Gateway {
       return send(res, 200, { seq: frame.seq });
     }
 
+    if (pathname === '/c/v1/tasks' && req.method === 'GET') {
+      requireContributor(req);
+      return send(res, 200, { tasks: submissions.listTasks() });
+    }
+    if (pathname === '/c/v1/submissions' && req.method === 'GET') {
+      return send(res, 200, { submissions: submissions.forContributor(requireContributor(req)) });
+    }
+    if (pathname === '/c/v1/submissions' && req.method === 'POST') {
+      const contributorId = requireContributor(req);
+      const parsed = createSubmissionSchema.safeParse(await readJson(req, limits.maxJsonBytes));
+      if (!parsed.success) throw new HttpError(400, `Invalid submission: ${parsed.error.issues[0]?.message ?? 'bad payload'}`);
+      const { record, created } = submissions.create(contributorId, parsed.data);
+      return send(res, created ? 201 : 200, record);
+    }
+    const subMatch = /^\/c\/v1\/submissions\/(sub_[0-9a-f]{16})\/(media|complete)$/.exec(pathname);
+    if (subMatch && subMatch[2] === 'media' && req.method === 'PUT') {
+      const contributorId = requireContributor(req);
+      const contentType = String(req.headers['content-type'] ?? '').split(';')[0].trim();
+      if (!VIDEO_TYPES[contentType]) throw new HttpError(415, 'Recordings must be video/mp4 or video/quicktime');
+      const temp = submissions.uploadTarget(subMatch[1], contributorId);
+      const { bytes, sha256 } = await streamToFile(req, temp, limits.maxVideoBytes);
+      if (bytes === 0) {
+        rmSync(temp, { force: true });
+        throw new HttpError(400, 'Empty recording');
+      }
+      const record = submissions.attachMedia(subMatch[1], contributorId, temp, contentType, bytes, sha256);
+      return send(res, 200, record);
+    }
+    if (subMatch && subMatch[2] === 'complete' && req.method === 'POST') {
+      const contributorId = requireContributor(req);
+      const body = (await readJson(req, limits.maxJsonBytes)) as { sha256?: unknown };
+      if (typeof body?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(body.sha256)) throw new HttpError(400, 'sha256 is required');
+      return send(res, 200, submissions.complete(subMatch[1], contributorId, body.sha256));
+    }
+
     const liveMatch = /^\/live\/([\w-]{20,64})(\/stream|\/frame\.jpg)?$/.exec(pathname);
     if (liveMatch && req.method === 'GET') {
       const view = live.resolve(liveMatch[1]);
@@ -165,13 +254,13 @@ export function createGateway(config: Config, store: Store): Gateway {
         res.destroy();
         return;
       }
-      if (error instanceof HttpError) return send(res, error.status, { error: error.message });
+      if (error instanceof HttpError || error instanceof SubmissionError) return send(res, error.status, { error: error.message });
       console.error('[http] unhandled error', error);
       send(res, 500, { error: 'Internal error' });
     });
   });
-  // Rig long polls hold requests open; keep sockets alive past the default timeouts.
-  server.requestTimeout = 60_000;
+  // Rig long polls hold requests open, and recordings upload over Wi-Fi; allow long requests.
+  server.requestTimeout = 15 * 60_000;
   server.headersTimeout = 15_000;
-  return { server, hub };
+  return { server, hub, submissions };
 }
