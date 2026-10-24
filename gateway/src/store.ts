@@ -17,22 +17,36 @@ export interface RigRecord {
   readonly createdAt: string;
 }
 
+/** A person who submits task recordings from the iPhone app. Cannot use MCP or rig routes. */
+export interface ContributorRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly hash: string;
+  readonly createdAt: string;
+  readonly revoked: boolean;
+}
+
 interface StoreData {
   readonly keys: readonly ApiKeyRecord[];
   readonly rigs: readonly RigRecord[];
+  readonly contributors: readonly ContributorRecord[];
 }
 
-const EMPTY: StoreData = { keys: [], rigs: [] };
+const EMPTY: StoreData = { keys: [], rigs: [], contributors: [] };
 
 /** Repository for API keys and rigs. JSON file for the hackathon; swap for a database later. */
 export interface Store {
   findKeyBySecret(secret: string): ApiKeyRecord | null;
   findRigBySecret(secret: string): RigRecord | null;
+  findContributorBySecret(secret: string): ContributorRecord | null;
   listKeys(): readonly ApiKeyRecord[];
   listRigs(): readonly RigRecord[];
+  listContributors(): readonly ContributorRecord[];
   createKey(name: string): { record: ApiKeyRecord; secret: string };
   createRig(name: string): { record: RigRecord; secret: string };
+  createContributor(name: string): { record: ContributorRecord; secret: string };
   revokeKey(id: string): ApiKeyRecord;
+  revokeContributor(id: string): ContributorRecord;
 }
 
 function validName(name: string): string {
@@ -72,7 +86,7 @@ export class JsonFileStore implements Store {
   private static read(file: string): StoreData {
     try {
       const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<StoreData>;
-      return { keys: parsed.keys ?? [], rigs: parsed.rigs ?? [] };
+      return { keys: parsed.keys ?? [], rigs: parsed.rigs ?? [], contributors: parsed.contributors ?? [] };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY;
       throw new Error(`Could not read store ${file}: ${(error as Error).message}`);
@@ -98,12 +112,21 @@ export class JsonFileStore implements Store {
     return this.data.rigs.find((rig) => rig.hash === hash) ?? null;
   }
 
+  findContributorBySecret(secret: string): ContributorRecord | null {
+    const hash = hashSecret(secret);
+    return this.data.contributors.find((person) => person.hash === hash && !person.revoked) ?? null;
+  }
+
   listKeys(): readonly ApiKeyRecord[] {
     return this.data.keys;
   }
 
   listRigs(): readonly RigRecord[] {
     return this.data.rigs;
+  }
+
+  listContributors(): readonly ContributorRecord[] {
+    return this.data.contributors;
   }
 
   createKey(name: string): { record: ApiKeyRecord; secret: string } {
@@ -131,11 +154,32 @@ export class JsonFileStore implements Store {
     return { record, secret };
   }
 
+  createContributor(name: string): { record: ContributorRecord; secret: string } {
+    const secret = generateSecret('ct');
+    const record: ContributorRecord = {
+      id: generateId('ctb'),
+      name: validName(name),
+      hash: hashSecret(secret),
+      createdAt: new Date().toISOString(),
+      revoked: false,
+    };
+    this.commit({ ...this.data, contributors: [...this.data.contributors, record] });
+    return { record, secret };
+  }
+
   revokeKey(id: string): ApiKeyRecord {
     const existing = this.data.keys.find((key) => key.id === id);
     if (!existing) throw new Error(`No API key ${id}`);
     const revoked = { ...existing, revoked: true };
     this.commit({ ...this.data, keys: this.data.keys.map((key) => (key.id === id ? revoked : key)) });
+    return revoked;
+  }
+
+  revokeContributor(id: string): ContributorRecord {
+    const existing = this.data.contributors.find((person) => person.id === id);
+    if (!existing) throw new Error(`No contributor ${id}`);
+    const revoked = { ...existing, revoked: true };
+    this.commit({ ...this.data, contributors: this.data.contributors.map((person) => (person.id === id ? revoked : person)) });
     return revoked;
   }
 }
