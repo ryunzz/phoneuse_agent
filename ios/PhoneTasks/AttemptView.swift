@@ -45,11 +45,7 @@ struct AttemptView: View {
         return Form {
             if attempt.phase == .submitted {
                 Section {
-                    Label("Submitted. The Mac has your recording and it is waiting for review.", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                        .font(.headline)
-                    Text("You can follow the review in My submissions.")
-                    Button("Done") { dismiss() }
+                    Text("The Mac has your recording. Follow the review in My submissions.")
                 }
             }
 
@@ -140,12 +136,10 @@ struct AttemptView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if attempt.phase != .submitted {
-                submitBar(attempt)
-                    .padding(.horizontal)
-                    .padding(.vertical, 10)
-                    .background(.bar)
-            }
+            submitBar(attempt)
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+                .background(.bar)
         }
         .navigationTitle("Your attempt")
         .navigationBarTitleDisplayMode(.inline)
@@ -168,6 +162,18 @@ struct AttemptView: View {
     private func submitBar(_ attempt: Attempt) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             switch attempt.phase {
+            case .submitted:
+                Label("Submitted. Waiting for review.", systemImage: "checkmark.seal.fill")
+                    .font(.headline)
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("submittedBanner")
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Done").font(.headline).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             case .uploading:
                 Text("Uploading to the review Mac…")
                 ProgressView(value: model.uploadProgress[attemptID] ?? 0)
