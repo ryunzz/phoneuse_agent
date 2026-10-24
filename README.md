@@ -31,6 +31,7 @@ python3.12 -m venv .venv-voice
 ```
 
 The setup command downloads the base.en and Silero VAD models to `.models/`. Normal transcription uses only local files and never downloads models.
+After setup, `python3 harness.py --serve` automatically relaunches in `.venv-voice` when needed, so the audio decoder is available even when the console is started from the system Python.
 
 Open [the console](http://127.0.0.1:8765). Allow microphone access when prompted. Hold **Option+Space**, speak, and release; or click Record, speak, then Stop. If you release the shortcut while the first permission prompt is open, hold it again after granting access. The shortcut works while the console has focus; it is not a system-wide dictation shortcut. Losing focus stops a recording. Review the transcript, then press Enter to preview. The microphone is released when recording stops, errors, or the page closes. Typed prompts still work without the SDK. Recordings are capped at 4 MB / 30 seconds; concurrent transcription is rejected rather than queued. Whisper can mishear axis names, signs, and numbers: review both the transcript and interpreted action. A transcript never authorizes hardware execution.
 

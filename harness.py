@@ -256,6 +256,10 @@ def main():
     parser.add_argument('--prompt', action='store_true', help='Interpret a spoken-style prompt before validation')
     parser.add_argument('command', nargs='*')
     args = parser.parse_args()
+    voice_venv = ROOT / '.venv-voice'
+    voice_python = voice_venv / 'bin' / 'python'
+    if args.serve and voice_python.is_file() and Path(sys.prefix).resolve() != voice_venv.resolve():
+        os.execv(str(voice_python), [str(voice_python), str(Path(__file__).resolve()), *sys.argv[1:]])
     try:
         harness = Harness(args.live, args.motion_ready)
         if args.serve:
