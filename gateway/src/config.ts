@@ -6,6 +6,8 @@ export interface Config {
   /** Base URL clients use to reach this gateway; live-feed links are built from it. */
   readonly publicUrl: string;
   readonly dataDir: string;
+  /** Contributor task catalog; defaults to gateway/tasks.json. */
+  readonly tasksFile?: string;
   readonly limits: Limits;
 }
 
@@ -18,6 +20,7 @@ export interface Limits {
   readonly liveTokenMs: number;
   readonly maxFrameBytes: number;
   readonly maxJsonBytes: number;
+  readonly maxVideoBytes: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -29,6 +32,7 @@ export const DEFAULT_LIMITS: Limits = {
   liveTokenMs: 30 * 60_000,
   maxFrameBytes: 2_000_000,
   maxJsonBytes: 1_000_000,
+  maxVideoBytes: 1_500_000_000,
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -46,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     publicUrl,
     dataDir: path.resolve(env.DATA_DIR ?? 'data'),
+    tasksFile: env.TASKS_FILE ? path.resolve(env.TASKS_FILE) : undefined,
     limits: DEFAULT_LIMITS,
   };
 }
