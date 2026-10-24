@@ -6,3 +6,5 @@ events.jsonl
 .build/
 .phone-stream/
 demonstrations/
+
+.playwright-mcp/
