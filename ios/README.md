@@ -9,7 +9,7 @@ shows up in the app. Local only: installed from Xcode, never published. Spec:
 
 ```sh
 cd gateway && bun install
-HOST=0.0.0.0 bun run dev
+bun run phone        # same as HOST=0.0.0.0; prints the address to pair with
 ```
 
 `HOST=0.0.0.0` lets the phone reach it. If macOS asks whether `bun` may accept incoming
