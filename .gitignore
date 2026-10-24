@@ -1,0 +1,8 @@
+__pycache__/
+events.jsonl
+.env
+.venv-voice/
+.models/
+.build/
+.phone-stream/
+demonstrations/

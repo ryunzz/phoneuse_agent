@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prusa command console</title>
+<style>
+body{font:17px system-ui;background:#151a20;color:#edf2f7;max-width:850px;margin:6vh auto;padding:24px}h1{font-size:36px;margin-bottom:8px}p{color:#bfcbd6;line-height:1.6}button,input{font:inherit;border:1px solid #576574;border-radius:8px;padding:13px;background:#252f3a;color:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}input{box-sizing:border-box;width:100%;margin:16px 0}button.primary{background:#ed7734;color:#10151a;font-weight:650}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0e1217;padding:20px;border-radius:10px;font-size:14px;min-height:160px}#message{min-height:28px}.buttons{display:flex;gap:10px;flex-wrap:wrap}label{display:block}small{color:#a5b5c5}
+</style>
+<h1>Prusa command console</h1>
+<p>Type or dictate a command. Review the exact action before sending it to the printer.</p>
+<small id="mode">Checking connection…</small>
+<section aria-label="iPhone screen" style="margin:24px 0;border:1px solid #576574;padding:18px;border-radius:10px">
+<h2 style="margin-top:0">iPhone screen</h2>
+<p id="phone-status" role="status">Checking iPhone Mirroring…</p>
+<img id="phone-frame" alt="Latest captured iPhone Mirroring window" hidden style="display:none;max-width:100%;max-height:560px;border-radius:12px;background:#080a0d">
+<p><a href="/iphone/frame.jpg" download="iphone-screen.jpg" style="color:#f79d66">Download current screenshot</a></p>
+<small>Open and unlock iPhone Mirroring on this Mac. Frames update approximately twice per second. This captures the mirrored window; verify the actual phone screen is visible.</small>
+<hr>
+<h3>Record a phone demonstration</h3>
+<p>Verify the actual phone is visible. While recording, use these controls for every action. Click the image to tap; actions affect the real phone. Direct interactions outside these controls are not recorded.</p>
+<label for="episode-task">Task instruction</label><input id="episode-task" placeholder="Open Settings and find Display &amp; Brightness" maxlength="2000">
+<label for="episode-group">Task family (keep related variants in one split)</label><input id="episode-group" placeholder="settings-display" maxlength="200">
+<label for="episode-split">Dataset split</label><select id="episode-split"><option value="train">Training</option><option value="eval">Evaluation</option></select>
+<div class="buttons"><button id="episode-start" type="button">Start demonstration</button><button id="episode-resume" type="button">Refresh recorder status</button></div>
+<div id="episode-controls" hidden>
+<label for="step-label">Next step label</label><select id="step-label"><option value="unreviewed">Needs review</option><option value="correct">Correct</option><option value="mistake">Mistake</option><option value="recovery">Recovery</option></select>
+<label for="step-note">Step note</label><input id="step-note" maxlength="2000" placeholder="Optional correction or context">
+<p>Tap by clicking the current phone image. Scroll starts at the image center.</p>
+<div class="buttons"><button type="button" id="phone-home">Home</button><button type="button" id="phone-up">Scroll up</button><button type="button" id="phone-down">Scroll down</button><button type="button" id="phone-wait">Wait 2 seconds</button></div>
+<label for="phone-text">Text to enter in the focused phone field</label><input id="phone-text" maxlength="500"><button type="button" id="phone-type">Type on phone</button>
+<label for="episode-outcome">Task outcome</label><select id="episode-outcome"><option value="success">Success</option><option value="failed">Failed</option><option value="abandoned">Abandoned</option></select>
+<label for="episode-note">Outcome note</label><input id="episode-note" maxlength="2000"><button type="button" id="episode-finish">Finish demonstration</button>
+</div>
+<p id="episode-status" role="status" aria-live="polite">No active demonstration.</p>
+<pre id="episode-result" aria-label="Latest recorded phone step" style="min-height:0"></pre>
+</section>
+<form id="form">
+<label for="command">Voice prompt or printer command</label>
+<input id="command" placeholder="Move the x axis by five millimeters" autocomplete="off" maxlength="200" aria-describedby="voice-help">
+<div class="buttons"><button class="primary" type="submit">Preview prompt</button><button id="mic" type="button">Record voice prompt</button><button id="send" type="button" disabled>Confirm execution</button><button id="status" type="button">Read status</button></div>
+</form>
+<p id="voice-help">Hold Option+Space while speaking, then release to fill the prompt. Or click Record voice prompt, then Stop recording. Press Enter to preview. Whisper transcribes locally on this Mac. Review the transcript and interpreted command before confirming. Maximum recording: 30 seconds.</p>
+<p id="message" role="status" aria-live="polite"></p>
+<pre id="output" aria-label="Command result"></pre>
+<p><strong>Commands</strong><br>status · temperatures · home · home x y · jog x 5 · jog z -1 · heat nozzle 200 · heat bed 60 · cooldown · pause · resume · cancel</p>
+<p>Jog is relative, at most 10 mm per command. Cancel requests print cancellation; it is not a hardware emergency stop. Use the printer’s physical controls for an emergency.</p>
+<p><strong>Try saying</strong><br>“Move the x axis by five millimeters.” · “Lower z by one millimeter.” · “Set the bed temperature to sixty degrees.” · “Pause the print.”</p>
+<p><small>Voice engine: whisper.cpp · base.en · runs on this Mac. Audio stays local; temporary audio files are deleted after transcription. No dictation app, account, or cloud API key is required.</small></p>
+<script>
+const token='__TOKEN__';
+const command=document.getElementById('command'), output=document.getElementById('output'), send=document.getElementById('send'), message=document.getElementById('message'), mic=document.getElementById('mic');
+let confirmation=null,busy=false,revision=0,speechBusy=false;
+function invalidate(){confirmation=null;send.disabled=true;}
+command.addEventListener('input',()=>{revision++;invalidate();});
+async function call(path,body){
+ const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Harness-Token':token},body:JSON.stringify(body)});
+ const data=await response.json(); if(!response.ok||data.error)throw new Error(data.error||'Request failed');return data;
+}
+async function perform(path,body){
+ if(busy||speechBusy)return;busy=true;invalidate();const startedRevision=revision;message.textContent='Working…';
+ try{const data=await call(path,body);output.textContent=JSON.stringify(data,null,2);document.getElementById('mode').textContent=data.mode==='live'?'LIVE — configured printer transport':'SIMULATION — no printer contacted';if(revision!==startedRevision){message.textContent='Prompt changed. Preview again before confirming.';return;}confirmation=data.confirmation||null;send.disabled=!confirmation;message.textContent=confirmation?'Interpreted command: '+(data.interpreted_command||body.command)+'. Review the action below. Confirmation expires in 30 seconds.':(data.outcome==='submitted'?'Submitted to controller. Check status to verify the outcome.':data.outcome==='failed_or_unknown'?'Command failed or its outcome is unknown. Check actual printer state before retrying.':'Result received.');}
+ catch(error){message.textContent=error.message;}finally{busy=false;}
+}
+document.getElementById('form').addEventListener('submit',event=>{event.preventDefault();perform('/prompt',{prompt:command.value});});
+send.addEventListener('click',()=>{const approved=confirmation;if(approved)perform('/execute',{confirmation:approved});});
+document.getElementById('status').addEventListener('click',()=>perform('/preview',{command:'status'}));
+let recorder=null,stream=null,recordingTimer=null,pttHeld=false;
+function stopRecording(){if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();}}
+function releaseMic(){clearTimeout(recordingTimer);if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;}
+function resetVoice(){releaseMic();recorder=null;speechBusy=false;mic.disabled=false;mic.textContent='Record voice prompt';command.disabled=false;}
+if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){mic.disabled=true;message.textContent='Microphone recording is unavailable in this browser. Open the local console in Chrome or Safari, or type a prompt.';}
+async function startRecording(pushToTalk=false){
+ if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();return;}
+ if(busy||speechBusy)return;
+ speechBusy=true;invalidate();revision++;command.disabled=true;mic.disabled=true;message.textContent='Waiting for microphone permission. Allow access in your browser. If no prompt appears, open this local console in Chrome or Safari.';
+ try{
+  let permissionExpired=false,permissionTimer;
+  const permission=navigator.mediaDevices.getUserMedia({audio:true}).then(value=>{if(permissionExpired){value.getTracks().forEach(track=>track.stop());throw new Error('Microphone request expired.');}return value;});
+  try{stream=await Promise.race([permission,new Promise((_,reject)=>{permissionTimer=setTimeout(()=>{permissionExpired=true;reject(new Error('Microphone permission timed out. Try Chrome or Safari at http://127.0.0.1:8765.'));},15000);})]);}finally{clearTimeout(permissionTimer);}
+  const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus'].find(type=>MediaRecorder.isTypeSupported(type));
+  recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
+  const chunks=[];let bytes=0,tooLarge=false;
+  recorder.ondataavailable=event=>{if(event.data.size){bytes+=event.data.size;if(bytes>4000000){tooLarge=true;if(recorder.state==='recording')recorder.stop();}else chunks.push(event.data);}};
+  recorder.onerror=()=>{resetVoice();message.textContent='Microphone recording failed. Try again or type the prompt.';};
+  recorder.onstop=async()=>{
+   const type=recorder?.mimeType||mime||'audio/webm';releaseMic();mic.disabled=true;message.textContent='Transcribing locally…';
+   try{
+    if(tooLarge)throw new Error('Recording too large. Speak a shorter command.');
+    const response=await fetch('/transcribe',{method:'POST',headers:{'Content-Type':type,'X-Harness-Token':token},body:new Blob(chunks,{type})});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'Transcription failed');
+    command.value=data.text;revision++;invalidate();resetVoice();
+    command.focus();message.textContent='Transcript ready. Review or edit it, then press Enter to preview.';
+   }catch(error){resetVoice();message.textContent=error.message;}
+  };
+  if(pushToTalk&&!pttHeld){resetVoice();message.textContent='Microphone ready. Hold Option+Space to record.';return;}
+  recorder.start(250);mic.disabled=false;mic.textContent='Stop recording';message.textContent='Recording… release Option+Space or click Stop recording.';
+  recordingTimer=setTimeout(()=>{if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();}},30000);
+ }catch(error){resetVoice();message.textContent='Microphone: '+error.message+'. You can type the prompt.';}
+}
+mic.addEventListener('click',()=>startRecording());
+document.addEventListener('keydown',event=>{
+ if(event.code!=='Space'||!event.altKey||event.ctrlKey||event.metaKey||mic.disabled&&!speechBusy)return;
+ event.preventDefault();if(event.repeat||pttHeld||busy||speechBusy)return;
+ pttHeld=true;startRecording(true);
+});
+document.addEventListener('keyup',event=>{
+ if(event.code!=='Space'&&event.key!=='Alt')return;
+ if(pttHeld){event.preventDefault();pttHeld=false;stopRecording();}
+});
+window.addEventListener('blur',()=>{pttHeld=false;stopRecording();});
+window.addEventListener('pagehide',()=>{pttHeld=false;stopRecording();releaseMic();});
+perform('/preview',{command:'status'});
+const phoneFrame=document.getElementById('phone-frame'),phoneStatus=document.getElementById('phone-status');
+let phoneURL=null,phoneStopped=false;
+async function updatePhone(){
+ try{
+  const response=await fetch('/iphone/status');if(!response.ok)throw new Error('Phone stream unavailable');const state=await response.json();
+  if(!state.fresh){phoneFrame.hidden=true;phoneFrame.style.display='none';phoneStatus.textContent=(state.message||'No fresh iPhone frame')+(state.age_s!==undefined?' Last frame '+state.age_s+' seconds ago.':'');}
+  else{
+   const frame=await fetch('/iphone/frame.jpg?t='+Date.now());if(!frame.ok)throw new Error('Waiting for a fresh phone frame');
+   const nextURL=URL.createObjectURL(await frame.blob());const oldURL=phoneURL;phoneURL=nextURL;phoneFrame.src=nextURL;phoneFrame.hidden=false;phoneFrame.style.display='block';if(oldURL)URL.revokeObjectURL(oldURL);
+   phoneStatus.textContent='Mirroring window · '+state.width+' × '+state.height+' · frame '+state.frames+' · '+state.age_s+' seconds old';
+  }
+ }catch(error){phoneStatus.textContent=error.message;phoneFrame.hidden=true;phoneFrame.style.display='none';}
+ if(!phoneStopped)setTimeout(updatePhone,500);
+}
+window.addEventListener('pagehide',()=>{phoneStopped=true;if(phoneURL)URL.revokeObjectURL(phoneURL);});
+updatePhone();
+
+let episodeActive=false,episodeBusy=false;
+const epStatus=document.getElementById('episode-status'),epResult=document.getElementById('episode-result');
+function episodeState(active){episodeActive=active;document.getElementById('episode-controls').hidden=!active;document.getElementById('episode-start').disabled=active;phoneFrame.style.cursor=active?'crosshair':'default';}
+async function episodeCall(path,body){
+ if(episodeBusy)return null;
+ episodeBusy=true;epStatus.textContent='Recording…';
+ document.querySelectorAll('#episode-controls button').forEach(b=>b.disabled=true);
+ try{const data=await call(path,body);epResult.textContent=JSON.stringify(data,null,2);epStatus.textContent=data.result?.status==='failed_or_unknown'?'Step failed or outcome unknown. Check the phone before continuing.':'Saved locally. '+(data.episode_id||'');return data;}
+ catch(error){epStatus.textContent=error.message;return null;}
+ finally{episodeBusy=false;document.querySelectorAll('#episode-controls button').forEach(b=>b.disabled=false);}
+}
+async function refreshEpisode(){try{const state=await(await fetch('/iphone/episode')).json();episodeState(!!state.episode_id);epStatus.textContent=state.episode_id?'Active episode '+state.episode_id+' · '+state.steps+' steps':'No active demonstration.';}catch(error){epStatus.textContent=error.message;}}
+document.getElementById('episode-start').onclick=async()=>{const data=await episodeCall('/iphone/episode/start',{instruction:document.getElementById('episode-task').value,group:document.getElementById('episode-group').value,split:document.getElementById('episode-split').value});if(data)episodeState(true);};
+document.getElementById('episode-resume').onclick=refreshEpisode;
+async function phoneAction(action){if(!episodeActive||episodeBusy)return;await episodeCall('/iphone/episode/action',{action,label:document.getElementById('step-label').value,note:document.getElementById('step-note').value});}
+phoneFrame.onclick=event=>{if(!episodeActive||episodeBusy)return;const rect=phoneFrame.getBoundingClientRect();phoneAction({type:'tap',x:(event.clientX-rect.left)/rect.width,y:(event.clientY-rect.top)/rect.height});};
+document.getElementById('phone-home').onclick=()=>phoneAction({type:'home'});
+document.getElementById('phone-up').onclick=()=>phoneAction({type:'scroll',x:0.5,y:0.5,dy:350});
+document.getElementById('phone-down').onclick=()=>phoneAction({type:'scroll',x:0.5,y:0.5,dy:-350});
+document.getElementById('phone-wait').onclick=()=>phoneAction({type:'wait',seconds:2});
+document.getElementById('phone-type').onclick=()=>phoneAction({type:'type',text:document.getElementById('phone-text').value});
+document.getElementById('episode-finish').onclick=async()=>{const data=await episodeCall('/iphone/episode/finish',{outcome:document.getElementById('episode-outcome').value,note:document.getElementById('episode-note').value});if(data)episodeState(false);};
+refreshEpisode();
+</script>
+</html>
