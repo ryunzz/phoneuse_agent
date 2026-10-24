@@ -20,8 +20,8 @@ Real phone through iPhone Mirroring: build the Swift helpers (see the root READM
 The same process serves the [Phone Tasks app](../ios/README.md): `GET /c/v1/tasks` (catalog in `tasks.json`) and idempotent video submissions under `/c/v1/submissions`, with contributor keys (`ct_…`) that cannot use MCP or rig routes. Review on the Mac at `http://127.0.0.1:8787/review/submissions`; that page and `/admin/v1/*` only answer on loopback.
 
 ```sh
-HOST=0.0.0.0 bun run dev                       # reachable from the phone on the same Wi-Fi
-bun run admin create-contributor "Your name"   # prints the pairing string for the app
+bun run phone                                  # LAN + USB, announced over Bonjour, phones sign up
+bun run admin create-contributor "Your name"   # fallback pairing string for the app
 ```
 
 ## Connect Claude
@@ -32,7 +32,7 @@ claude mcp add --transport http phoneuse http://127.0.0.1:8787/mcp --header "Aut
 
 Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_task_done`, `phone_disconnect`, `usage_get`.
 
-## Training traces (VLA)
+## Training traces (VLM)
 
 Every MCP session is recorded as an episode in the same format the local demo recorder (`episodes.py`) writes, under `DATA_DIR/demonstrations/` (set `TRACE_DIR`, or `TRACES=off` to disable).
 
@@ -60,6 +60,7 @@ The gateway keeps rig queues, leases and frames in memory, so run it as **one lo
 | `PUBLIC_URL` | `http://HOST:PORT` | Base for live-feed links |
 | `DATA_DIR` | `./data` | API keys/rigs/contributors (hashed), usage ledger, traces, `submissions/` |
 | `TASKS_FILE` | `./tasks.json` | Contributor task catalog |
+| `ENROLLMENT` | closed | `open` lets phones get a contributor key from `POST /c/v1/enroll` |
 | `TRACE_DIR` / `TRACES` | `DATA_DIR/demonstrations` / on | Episode recording (`TRACES=off` disables) |
 | `REVIEW_TOKEN` | unset | Enables `/review` and `/v1/episodes` (24+ chars) |
 

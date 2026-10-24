@@ -1,32 +1,37 @@
 # Phone Tasks (iPhone app)
 
 Contributors pick a task, screen-record themselves doing it, and upload the recording to the
-gateway on our Mac over Wi-Fi. We review it at `http://127.0.0.1:8787/review/submissions`, and the decision
-shows up in the app. Local only: installed from Xcode, never published. Spec:
-[../docs/IPHONE_APP_PLAN.md](../docs/IPHONE_APP_PLAN.md).
+gateway on our Mac, over Wi-Fi or over the USB cable. We review it at
+`http://127.0.0.1:8787/review/submissions`, and the decision shows up in the app. Local only:
+installed from Xcode, never published. Spec: [../docs/IPHONE_APP_PLAN.md](../docs/IPHONE_APP_PLAN.md).
 
 ## 1. Start the gateway on the Mac
 
 ```sh
 cd gateway && bun install
-bun run phone        # same as HOST=0.0.0.0; prints the address to pair with
+bun run phone
 ```
 
-`HOST=0.0.0.0` lets the phone reach it. If macOS asks whether `bun` may accept incoming
-connections, click **Allow**. Use trusted Wi-Fi only.
+`bun run phone` listens on every interface (`HOST=0.0.0.0`), announces itself on the local
+network as `_phonetasks._tcp`, and lets phones sign themselves up (`ENROLLMENT=open`). If macOS
+asks whether `bun` may accept incoming connections, click **Allow**. Use it on trusted
+networks only. Keep that terminal open while testing.
 
-## 2. Make a pairing string
+## 2. How the phone reaches the Mac
 
-```sh
-cd gateway && bun run admin create-contributor "Your name"
-```
+The app finds the Mac on its own. There's no address to type:
 
-It prints `http://<mac-wifi-ip>:8787#ct_…`. Send that line to the phone (AirDrop, Notes,
-or Universal Clipboard). The key is shown once.
+- **Same Wi-Fi:** works on home or office Wi-Fi.
+- **USB cable:** works even on campus or guest Wi-Fi that blocks devices from seeing each
+  other. Keep the phone plugged into the Mac. If it still can't find the Mac, also turn on
+  Personal Hotspot on the phone.
 
-The Mac's Wi-Fi IP can change when it reconnects. If the app says it can't reach the Mac,
-check the current IP with `ipconfig getifaddr en0`, then re-pair in the app (Settings →
-Pair with a different Mac) using that IP and the same `ct_…` key.
+The gateway lists every address the Mac has, and the app uses the first one that answers. If
+the Mac's IP changes, the app finds it again by itself.
+
+Fallback for networks where discovery fails: `bun run admin create-contributor "Your name"`
+prints a pairing string (`http://<mac-ip>:8787#ct_…`). Paste it under **Use a pairing string
+instead** on the connect screen.
 
 ## 3. Install on the iPhone
 
@@ -45,7 +50,7 @@ Free-team installs expire after 7 days; press Run again to renew.
 
 ## 4. Try it
 
-1. Paste the pairing string and tap Connect.
+1. Type your name and tap **Connect**.
 2. Open a task, tap **Start task**, and turn on the consent switch.
 3. Start iOS screen recording (Control Center → Screen Recording), do the task, and stop the
    recording.
@@ -58,14 +63,14 @@ Submissions are stored in `gateway/data/submissions/<id>/` (`meta.json` + video)
 
 ## Simulator
 
-The Simulator reaches the Mac at `127.0.0.1`, so pair with the second line `create-contributor`
-prints. Add a test video with `xcrun simctl addmedia booted video.mp4`. Debug builds also accept
+Connect works the same way in the Simulator. Add a test video with `xcrun simctl addmedia booted video.mp4`. Debug builds also accept
 `SIMCTL_CHILD_PHONETASKS_PAIRING='<pairing string>' xcrun simctl launch booted com.phoneuse.tasks`.
 
 ## Notes
 
-- `Info.plist` sets `NSAllowsArbitraryLoads` because the app talks plain HTTP to a Wi-Fi IP.
+- `Info.plist` sets `NSAllowsArbitraryLoads` because the app talks plain HTTP to a LAN IP.
   `NSAllowsLocalNetworking` alone did not allow this in testing. Fine for a never-published app.
+  It also lists `_phonetasks._tcp` under `NSBonjourServices` so the app may browse for the Mac.
 - The app records nothing itself. It uploads the video you pick, plus the task ID and version,
   your consent time, your reported outcome and note, device model, iOS version, locale, and
   the duration.

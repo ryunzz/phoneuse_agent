@@ -14,7 +14,7 @@ are later experiments.
 
 **Local only.** The app is installed from Xcode onto our own iPhones. It is not published:
 no TestFlight, no App Store, no hosted backend. The phone talks to the gateway running on
-a Mac on the same Wi-Fi.
+a Mac, over the same Wi-Fi or the USB cable.
 
 **First acceptance gate:** complete one real task on an iPhone, upload its screen recording
 to the Mac, review it on the review page, and see the review status in the app.
@@ -23,8 +23,9 @@ to the Mac, review it on the review page, and see the review status in the app.
 
 The recording is made on the phone, but review happens on the Mac, and the review result has
 to come back to the phone. Something on the Mac has to accept the upload and serve the status.
-That is a handful of routes on the existing Bun gateway (`gateway/`), reached at
-`http://<mac-lan-ip>:8787`. There is no cloud service.
+That is a handful of routes on the existing Bun gateway (`gateway/`), which the app finds
+on the local network. There is no cloud service. The cable alone is not enough: iOS only lets
+Xcode use it, unless the Mac has a network link to the phone over it (see Connect).
 
 ## Pieces
 
@@ -81,11 +82,15 @@ Example listing:
 - The contributor's reported outcome is shown separately from the review decision.
 - “Payments are not enabled in this beta.” No wallet, no balance.
 
-### 5. Settings
+### 5. Connect
 
-- Pair with the Mac by pasting the pairing string printed by
-  `bun run admin create-contributor <name>`: `http://<mac-ip>:8787#ct_…`.
-- Connection check against `/c/v1/tasks`.
+- `bun run phone` on the Mac announces the gateway as `_phonetasks._tcp`, with every Mac
+  address in the TXT record. The app finds it, checks each address with `/health`, and calls
+  `POST /c/v1/enroll` with the contributor's name to get its own `ct_` key.
+- Works over the same Wi-Fi, or over the USB cable when the Wi-Fi isolates devices (tested
+  on an iPhone 15 on campus Wi-Fi).
+- If the Mac's IP changes, the app looks it up again and keeps its key.
+- Fallback: paste a pairing string from `bun run admin create-contributor <name>`.
 
 ## Recording
 
@@ -108,7 +113,8 @@ model-proposed). Failed and blocked attempts are kept but are not imitation targ
 
 ## Mac receiver (gateway routes)
 
-Contributor routes need `Authorization: Bearer ct_…`. A `ct_` key is rejected by `/mcp`,
+`POST /c/v1/enroll` (only with `ENROLLMENT=open`, rate-limited) returns a new `ct_` key.
+The other contributor routes need `Authorization: Bearer ct_…`. A `ct_` key is rejected by `/mcp`,
 `/rig/v1/*`, and the admin routes, because each route checks its own key prefix
 (`bearerToken` in `gateway/src/auth.ts`).
 
@@ -134,7 +140,7 @@ Storage: `DATA_DIR/submissions/<id>/meta.json` plus `media.mp4|mov`. Each record
 task version, contributor, consent version and time, outcome, checksum, duration, device,
 and review history. Unfinished uploads never reach the review queue.
 
-**Networking:** run `HOST=0.0.0.0 bun run dev` on trusted Wi-Fi only. That also exposes `/mcp`
+**Networking:** run `bun run phone` on trusted networks only. That also exposes `/mcp`
 and `/rig` on the LAN; they still require their own tokens. The app's Info.plist sets
 `NSAllowsArbitraryLoads` (plain HTTP to the Mac's Wi-Fi IP; `NSAllowsLocalNetworking` alone was
 refused for an IP address in testing) and `NSLocalNetworkUsageDescription` (iOS asks for
@@ -174,7 +180,7 @@ Step-by-step instructions: [../ios/README.md](../ios/README.md).
 ## Acceptance test
 
 - [ ] Install and launch the app on a physical iPhone.
-- [ ] Pair with the Mac over Wi-Fi; the connection check passes.
+- [x] Connect to the Mac with no typed address; tasks load (iPhone 15, over USB).
 - [ ] The app shows a clear error when the Mac is unreachable.
 - [ ] Open the translation task's full requirements.
 - [ ] Start an attempt and read the recording/training consent.
