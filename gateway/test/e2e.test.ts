@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { after, before, test } from 'node:test';
+import { afterAll as after, beforeAll as before, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -46,7 +46,7 @@ before(async () => {
   gateway = createGateway(config, store);
   await new Promise<void>((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(gateway.server.address() as AddressInfo).port}`;
-  rig = spawn('python3', ['rig_agent.py', '--backend', 'sim', '--gateway', base, '--fps', '5'], {
+  rig = spawn('uv', ['run', 'rig_agent.py', '--backend', 'sim', '--gateway', base, '--fps', '5'], {
     cwd: REPO,
     env: { ...process.env, RIG_TOKEN: rigToken },
     stdio: 'ignore',

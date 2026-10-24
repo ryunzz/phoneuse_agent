@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import { DEFAULT_LIMITS } from '../src/config.js';
 import { RateLimiter } from '../src/ratelimit.js';
 import { RigError, RigHub } from '../src/rigs.js';

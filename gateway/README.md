@@ -5,15 +5,15 @@ Claude connects here over remote MCP with an API key. The gateway routes tool ca
 ## Run locally with the simulated rig
 
 ```sh
-cd gateway && npm install
-npm run admin -- create-key "my laptop"     # prints pu_... once
-npm run admin -- create-rig "rig 1"         # prints rig_... once
-npm run dev                                  # http://127.0.0.1:8787
+cd gateway && bun install
+bun run admin create-key "my laptop"     # prints pu_... once
+bun run admin create-rig "rig 1"         # prints rig_... once
+bun run dev                                  # http://127.0.0.1:8787
 # in another terminal, from the repo root:
-RIG_TOKEN=rig_... python3 rig_agent.py --backend sim
+RIG_TOKEN=rig_... uv run rig_agent.py --backend sim
 ```
 
-Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `python3 rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
+Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
 
 ## Connect Claude
 
@@ -25,7 +25,7 @@ Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scr
 
 ## Deploying
 
-The gateway keeps rig queues, leases and frames in memory, so run it as **one long-lived Node process** (Fly.io, Railway, a VM). It does not fit per-request serverless. Set `HOST=0.0.0.0`, `PORT`, `PUBLIC_URL=https://…` (used in live-feed links) and `DATA_DIR` (a persistent volume for `store.json` and `usage.jsonl`). Terminate TLS in front of it. The rig agent refuses plain `http` to non-local gateways.
+The gateway keeps rig queues, leases and frames in memory, so run it as **one long-lived Bun process** (Fly.io, Railway, a VM). It does not fit per-request serverless. Set `HOST=0.0.0.0`, `PORT`, `PUBLIC_URL=https://…` (used in live-feed links) and `DATA_DIR` (a persistent volume for `store.json` and `usage.jsonl`). Terminate TLS in front of it. The rig agent refuses plain `http` to non-local gateways.
 
 ## Environment
 
@@ -38,6 +38,6 @@ The gateway keeps rig queues, leases and frames in memory, so run it as **one lo
 ## Test
 
 ```sh
-npm test        # hub unit tests + end-to-end: gateway + sim rig_agent.py + MCP client
-npm run typecheck
+bun test        # hub unit tests + end-to-end: gateway + sim rig_agent.py (via uv) + MCP client
+bun run typecheck
 ```

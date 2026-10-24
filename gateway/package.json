@@ -5,23 +5,21 @@
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "bun": ">=1.3"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
-    "build": "tsc -p tsconfig.json",
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "admin": "tsx src/admin.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "admin": "bun src/admin.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "tsx": "^4.23.15",
+    "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
   }
 }

@@ -2,10 +2,10 @@ import { loadConfig } from './config.js';
 import { JsonFileStore } from './store.js';
 
 const USAGE = `Usage:
-  npm run admin -- create-key <name>    Issue an API key (shown once)
-  npm run admin -- create-rig <name>    Register a rig and issue its token (shown once)
-  npm run admin -- revoke-key <key_id>
-  npm run admin -- list`;
+  bun run admin create-key <name>    Issue an API key (shown once)
+  bun run admin create-rig <name>    Register a rig and issue its token (shown once)
+  bun run admin revoke-key <key_id>
+  bun run admin list`;
 
 function main(argv: readonly string[]): number {
   const [command, ...rest] = argv;
@@ -19,7 +19,7 @@ function main(argv: readonly string[]): number {
     }
     case 'create-rig': {
       const { record, secret } = store.createRig(name);
-      console.info(`Registered ${record.id} (${record.name})\nRig token: ${secret}\nRun: GATEWAY_URL=... RIG_TOKEN=... python3 rig_agent.py`);
+      console.info(`Registered ${record.id} (${record.name})\nRig token: ${secret}\nRun: GATEWAY_URL=... RIG_TOKEN=... uv run rig_agent.py`);
       return 0;
     }
     case 'revoke-key':
