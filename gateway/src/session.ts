@@ -21,7 +21,7 @@ export interface ActOutcome {
 
 /**
  * One API key's view of its phone: lease, observation, guarded actions and trace
- * recording. MCP tools and the VLA runner both go through here, so every action
+ * recording. MCP tools and the VLM runner both go through here, so every action
  * path gets the same safety rails and the same training data.
  */
 export class PhoneSession {

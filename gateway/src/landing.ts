@@ -21,7 +21,7 @@ const TOOLS: readonly ToolRow[] = [
   { name: 'phone_live_feed', what: 'Shareable live view link', clip: '--clip-fx' },
   { name: 'phone_task_done', what: 'Report how the task ended', clip: '--line-strong' },
   { name: 'ask_user', what: 'Pause for a human (2FA codes)', clip: '--clip-audio' },
-  { name: 'phone_do', what: 'Hand a goal to the phone VLA', clip: '--playhead' },
+  { name: 'phone_do', what: 'Hand a goal to the phone VLM', clip: '--playhead' },
   { name: 'usage_get', what: 'Tokens used by this key', clip: '--line-strong' },
 ];
 
@@ -32,7 +32,7 @@ const SEQUENCE: readonly { readonly label: string; readonly clip: string }[] = [
   { label: 'Verify', clip: '--clip-image' },
   { label: 'Episode', clip: '--clip-text' },
   { label: 'Review', clip: '--clip-audio' },
-  { label: 'VLA', clip: '--playhead' },
+  { label: 'VLM', clip: '--playhead' },
 ];
 
 function escapeHtml(value: string): string {

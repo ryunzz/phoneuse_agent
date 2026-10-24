@@ -11,7 +11,7 @@ import { landingPage } from './landing.js';
 import { AskError, Asks } from './asks.js';
 import { Guards } from './guards.js';
 import { createMcpServer } from './mcp.js';
-import { createVlaProvider, type VlaProvider } from './vla.js';
+import { createVlmProvider, type VlmProvider } from './vlm.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { createReviewApi, REVIEW_CSP, ReviewError, reviewPage } from './review.js';
@@ -156,7 +156,7 @@ function sendVideo(req: IncomingMessage, res: ServerResponse, file: string, cont
   createReadStream(file).pipe(res);
 }
 
-export function createGateway(config: Config, store: Store, vla: VlaProvider | null = createVlaProvider()): Gateway {
+export function createGateway(config: Config, store: Store, vlm: VlmProvider | null = createVlmProvider()): Gateway {
   const { limits } = config;
   const hub = new RigHub(() => new Map(store.listRigs().map((rig) => [rig.id, rig.name])), limits);
   const usage = new UsageLedger(`${config.dataDir}/usage.jsonl`);
@@ -196,7 +196,7 @@ export function createGateway(config: Config, store: Store, vla: VlaProvider | n
     if (req.method !== 'POST') return send(res, 405, { error: 'This MCP endpoint is stateless; use POST' });
     const body = await readJson(req, limits.maxJsonBytes);
     // Stateless Streamable HTTP: fresh server per request; rig leases live on the API key.
-    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces, guards, asks, vla });
+    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces, guards, asks, vlm });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();
