@@ -1,0 +1,13 @@
+[project]
+name = "phoneuse-rig"
+version = "0.1.0"
+description = "Phone Use rig: iPhone capture, phone actions, printer/stylus harness, and gateway agent"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+# Local whisper.cpp voice prompts (speech.py). Install with: uv sync --extra voice
+voice = ["av==19.0.2", "numpy==2.5.4"]
+
+[tool.uv]
+package = false
