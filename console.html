@@ -2,12 +2,25 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Prusa command console</title>
+<title>Device controller</title>
 <style>
 body{font:17px system-ui;background:#151a20;color:#edf2f7;max-width:850px;margin:6vh auto;padding:24px}h1{font-size:36px;margin-bottom:8px}p{color:#bfcbd6;line-height:1.6}button,input{font:inherit;border:1px solid #576574;border-radius:8px;padding:13px;background:#252f3a;color:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}input{box-sizing:border-box;width:100%;margin:16px 0}button.primary{background:#ed7734;color:#10151a;font-weight:650}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0e1217;padding:20px;border-radius:10px;font-size:14px;min-height:160px}#message{min-height:28px}.buttons{display:flex;gap:10px;flex-wrap:wrap}label{display:block}small{color:#a5b5c5}
 </style>
-<h1>Prusa command console</h1>
-<p>Type or dictate a command. Review the exact action before sending it to the printer.</p>
+<nav aria-label="Dashboards"><a href="/controller" aria-current="page" style="color:#f79d66">Device controller</a> · <a href="/admin" style="color:#f79d66">Admin / trace reviews</a></nav>
+<h1>Device controller</h1>
+<p>Give Claude a phone task by voice or text, or preview a bounded printer command.</p>
+<section aria-label="Claude phone agent">
+<h2>Ask Claude to use your phone</h2>
+<p>Unlock iPhone Mirroring first. Claude receives screenshots and task text and operates the real phone through Mirroring. Every action is recorded locally.</p>
+<form id="agent-form">
+<label for="agent-task">Phone task</label><input id="agent-task" maxlength="2000" placeholder="Open Settings and find Display &amp; Brightness">
+<div class="buttons"><button type="button" id="agent-mic">Record phone task</button><button type="submit" id="agent-run" class="primary">Run Claude on phone</button><button type="button" id="agent-stop" disabled>Stop Claude</button></div>
+</form>
+<p>Focus the task field and hold Option+Space to dictate. Review the transcript, then run. Stop blocks further actions; an action already sent may finish.</p>
+<p id="agent-status" role="status" aria-live="polite">Checking Claude…</p>
+<p id="message" role="status" aria-live="polite"></p>
+<pre id="agent-output" aria-label="Claude progress"></pre>
+</section>
 <small id="mode">Checking connection…</small>
 <section aria-label="iPhone screen" style="margin:24px 0;border:1px solid #576574;padding:18px;border-radius:10px">
 <h2 style="margin-top:0">iPhone screen</h2>
@@ -40,7 +53,6 @@ body{font:17px system-ui;background:#151a20;color:#edf2f7;max-width:850px;margin
 <div class="buttons"><button class="primary" type="submit">Preview prompt</button><button id="mic" type="button">Record voice prompt</button><button id="send" type="button" disabled>Confirm execution</button><button id="status" type="button">Read status</button></div>
 </form>
 <p id="voice-help">Hold Option+Space while speaking, then release to fill the prompt. Or click Record voice prompt, then Stop recording. Press Enter to preview. Whisper transcribes locally on this Mac. Review the transcript and interpreted command before confirming. Maximum recording: 30 seconds.</p>
-<p id="message" role="status" aria-live="polite"></p>
 <pre id="output" aria-label="Command result"></pre>
 <p><strong>Commands</strong><br>status · temperatures · home · home x y · jog x 5 · jog z -1 · heat nozzle 200 · heat bed 60 · cooldown · pause · resume · cancel</p>
 <p>Jog is relative, at most 10 mm per command. Cancel requests print cancellation; it is not a hardware emergency stop. Use the printer’s physical controls for an emergency.</p>
@@ -64,15 +76,18 @@ async function perform(path,body){
 document.getElementById('form').addEventListener('submit',event=>{event.preventDefault();perform('/prompt',{prompt:command.value});});
 send.addEventListener('click',()=>{const approved=confirmation;if(approved)perform('/execute',{confirmation:approved});});
 document.getElementById('status').addEventListener('click',()=>perform('/preview',{command:'status'}));
+const agentTask=document.getElementById('agent-task'),agentMic=document.getElementById('agent-mic');
+let voiceTarget=command;
 let recorder=null,stream=null,recordingTimer=null,pttHeld=false;
-function stopRecording(){if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();}}
+function stopRecording(){if(recorder?.state==='recording'){mic.disabled=true;agentMic.disabled=true;recorder.stop();releaseMic();}}
 function releaseMic(){clearTimeout(recordingTimer);if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;}
-function resetVoice(){releaseMic();recorder=null;speechBusy=false;mic.disabled=false;mic.textContent='Record voice prompt';command.disabled=false;}
-if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){mic.disabled=true;message.textContent='Microphone recording is unavailable in this browser. Open the local console in Chrome or Safari, or type a prompt.';}
-async function startRecording(pushToTalk=false){
+function resetVoice(){releaseMic();recorder=null;speechBusy=false;mic.disabled=false;agentMic.disabled=false;mic.textContent='Record voice prompt';agentMic.textContent='Record phone task';command.disabled=false;agentTask.disabled=false;}
+if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){mic.disabled=true;agentMic.disabled=true;message.textContent='Microphone recording is unavailable in this browser. Open the local console in Chrome or Safari, or type a prompt.';}
+async function startRecording(pushToTalk=false,target=command){
  if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();return;}
  if(busy||speechBusy)return;
- speechBusy=true;invalidate();revision++;command.disabled=true;mic.disabled=true;message.textContent='Waiting for microphone permission. Allow access in your browser. If no prompt appears, open this local console in Chrome or Safari.';
+ voiceTarget=target;
+ speechBusy=true;invalidate();revision++;command.disabled=true;agentTask.disabled=true;mic.disabled=true;agentMic.disabled=true;message.textContent='Waiting for microphone permission. Allow access in your browser. If no prompt appears, open this local console in Chrome or Safari.';
  try{
   let permissionExpired=false,permissionTimer;
   const permission=navigator.mediaDevices.getUserMedia({audio:true}).then(value=>{if(permissionExpired){value.getTracks().forEach(track=>track.stop());throw new Error('Microphone request expired.');}return value;});
@@ -88,20 +103,21 @@ async function startRecording(pushToTalk=false){
     if(tooLarge)throw new Error('Recording too large. Speak a shorter command.');
     const response=await fetch('/transcribe',{method:'POST',headers:{'Content-Type':type,'X-Harness-Token':token},body:new Blob(chunks,{type})});
     const data=await response.json();if(!response.ok)throw new Error(data.error||'Transcription failed');
-    command.value=data.text;revision++;invalidate();resetVoice();
-    command.focus();message.textContent='Transcript ready. Review or edit it, then press Enter to preview.';
+    voiceTarget.value=data.text;revision++;invalidate();resetVoice();
+    voiceTarget.focus();message.textContent=voiceTarget===agentTask?'Phone task ready. Review it, then click Run Claude on phone.':'Transcript ready. Review or edit it, then press Enter to preview.';
    }catch(error){resetVoice();message.textContent=error.message;}
   };
   if(pushToTalk&&!pttHeld){resetVoice();message.textContent='Microphone ready. Hold Option+Space to record.';return;}
-  recorder.start(250);mic.disabled=false;mic.textContent='Stop recording';message.textContent='Recording… release Option+Space or click Stop recording.';
+  recorder.start(250);mic.disabled=false;agentMic.disabled=false;mic.textContent='Stop recording';agentMic.textContent='Stop recording';message.textContent='Recording… release Option+Space or click Stop recording.';
   recordingTimer=setTimeout(()=>{if(recorder?.state==='recording'){mic.disabled=true;recorder.stop();releaseMic();}},30000);
  }catch(error){resetVoice();message.textContent='Microphone: '+error.message+'. You can type the prompt.';}
 }
 mic.addEventListener('click',()=>startRecording());
+agentMic.addEventListener('click',()=>startRecording(false,agentTask));
 document.addEventListener('keydown',event=>{
  if(event.code!=='Space'||!event.altKey||event.ctrlKey||event.metaKey||mic.disabled&&!speechBusy)return;
  event.preventDefault();if(event.repeat||pttHeld||busy||speechBusy)return;
- pttHeld=true;startRecording(true);
+ pttHeld=true;startRecording(true,document.activeElement===command?command:agentTask);
 });
 document.addEventListener('keyup',event=>{
  if(event.code!=='Space'&&event.key!=='Alt')return;
@@ -150,5 +166,26 @@ document.getElementById('phone-wait').onclick=()=>phoneAction({type:'wait',secon
 document.getElementById('phone-type').onclick=()=>phoneAction({type:'type',text:document.getElementById('phone-text').value});
 document.getElementById('episode-finish').onclick=async()=>{const data=await episodeCall('/iphone/episode/finish',{outcome:document.getElementById('episode-outcome').value,note:document.getElementById('episode-note').value});if(data)episodeState(false);};
 refreshEpisode();
+const agentStatus=document.getElementById('agent-status'),agentOutput=document.getElementById('agent-output');
+document.getElementById('agent-form').onsubmit=async event=>{
+ event.preventDefault();if(speechBusy)return;
+ document.getElementById('agent-run').disabled=true;
+ try{await call('/agent/start',{instruction:agentTask.value});await refreshAgent();}
+ catch(error){agentStatus.textContent=error.message;document.getElementById('agent-run').disabled=false;}
+};
+document.getElementById('agent-stop').onclick=async()=>{try{await call('/agent/stop',{});await refreshAgent();}catch(error){agentStatus.textContent=error.message;}};
+let agentPollStopped=false;
+async function refreshAgent(){
+ const response=await fetch('/agent/status');if(!response.ok)throw new Error('Claude status unavailable');
+ const state=await response.json();
+ agentStatus.textContent='Claude: '+state.status+(state.episode_id?' · trace '+state.episode_id:'');
+ agentOutput.textContent=state.events.filter(event=>!(event.kind==='result'&&state.events.some(previous=>previous.kind==='text'&&previous.text===event.text))).map(event=>event.kind==='action'?JSON.stringify({action:event.action,result:event.result?.result?.error||event.result?.result?.receipt||event.result?.result?.status}):event.kind==='error'?'Error: '+(event.text||'unknown')+(event.details?'\n'+event.details.join('\n'):''):event.text||event.kind).join('\n\n');
+ document.getElementById('agent-run').disabled=state.running;
+ document.getElementById('agent-stop').disabled=!state.running;
+ document.getElementById('episode-start').disabled=state.running||episodeActive;
+}
+async function pollAgent(){try{await refreshAgent();}catch(error){agentStatus.textContent=error.message;}if(!agentPollStopped)setTimeout(pollAgent,1000);}
+window.addEventListener('pagehide',()=>{agentPollStopped=true;});
+pollAgent();
 </script>
 </html>

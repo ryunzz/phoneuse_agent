@@ -1,5 +1,42 @@
 # Prusa command + voice harness
 
+## Admin and controller dashboards
+
+Run the existing server, then open `/controller` for the Claude SDK phone harness or `/admin` for trace review. Both use the same local server and demonstration directory. The root URL still opens the controller. For example, with `python3 harness.py --serve --iphone`, open [the controller](http://127.0.0.1:8765/controller) or [the admin dashboard](http://127.0.0.1:8765/admin).
+
+The admin dashboard shows episode totals, pending and labeled steps, reported successful outcomes, unfinished episodes, and incomplete steps. Select an episode to inspect action payloads and before/after images. Finish the episode before saving a review, enter a reviewer name, and label each step correct, mistake, recovery, or unreviewed. Reviews append to `annotations.jsonl`; the original action trace and recorded outcome are preserved. Use Refresh statistics to see newly recorded episodes. Unreadable episode directories are counted separately rather than silently included in totals.
+
+The controller retains the existing Claude SDK Run/Stop, phone stream, manual recorder, and bounded printer command flows. Claude controls the phone through iPhone Mirroring; it does not operate a physical stylus robot. Starting this server without `--live` leaves printer commands in simulation; phone actions still affect the real phone when Mirroring is connected.
+
+These are local operator dashboards, not a hosted multi-user admin service. Review APIs require the local console token; writes also require the same-origin request check. No contributor accounts, iPhone marketplace project, video uploads, payouts, or automated episode approval are added here. Step labels and operator-reported outcomes remain separate, and the existing dataset exporter retains its success, completeness, image-integrity, and split checks.
+
+## Claude phone tasks by voice
+
+The phone console now uses the official [Claude Agent SDK for Python](https://github.com/anthropics/claude-agent-sdk-python) to launch your installed Claude Code CLI with two in-process MCP tools: `screenshot` and `act`. Claude can observe the Mirroring window and perform recorded taps, scrolling, text entry, Home, and waits. This uses Mac input events through iPhone Mirroring; the physical stylus/serial adapter is still separate.
+
+```sh
+claude auth login
+.venv-voice/bin/python -m pip install -r requirements-voice.txt
+.venv-voice/bin/python harness.py --serve --iphone
+```
+
+Build the two Swift helpers using the instructions below if `.build/phone-capture` and `.build/phone-action` do not exist. Open [the local console](http://127.0.0.1:8765/), unlock iPhone Mirroring, and use **Ask Claude to use your phone**:
+
+1. Click **Record phone task**, speak, then click **Stop recording**. Or focus the phone-task field and hold Option+Space while speaking.
+2. Review or edit the transcript. Try “Open Settings and find Display & Brightness.”
+3. Click **Run Claude on phone**. Watch the screen and Claude's progress.
+4. Click **Stop Claude** to interrupt the run and block subsequent tool actions. An input already dispatched may finish; Stop is not an undo.
+
+Speech is transcribed locally with whisper.cpp. Task text and screenshots are sent to Claude using the CLI's configured authentication/provider, and may incur usage. Only the harness phone tools are exposed: built-in tools, filesystem settings, and other MCP servers are disabled. Printer commands retain their separate preview/confirmation flow. Phone actions affect the real phone even when the printer is in simulation.
+
+Each run is limited to 20 actions, 45 turns, 180 seconds, and a $2 SDK budget (not a hard billing guarantee). Each action requires a preceding screenshot, and failed/unknown dispatches stop the run without retrying. The system prompt tells Claude to stop at locked/disconnected screens, authentication, or consequential submissions; these semantic restrictions depend on model behavior. Native action validation and the Stop gate are enforced by code. Manual recorder controls cannot take over an active Claude run.
+
+Runs are stored in `demonstrations/<episode-id>/`, including `agent.jsonl`, numbered observation JPEGs with hashes, and the existing before/after action trace. Steps remain unreviewed, and completed agent runs are marked abandoned/needs human review rather than automatically treated as successful training data. The UI's “completed” means the SDK run ended, not that the phone task succeeded.
+
+Authenticated endpoints: `POST /agent/start` with `{"instruction":"..."}`, `POST /agent/stop` with `{}`. `GET /agent/status` returns run state and recent progress. These use the same loopback and console authentication boundary as the existing harness.
+
+Verified on 2026-10-24: 41 tests pass in `.venv-voice`. A browser recording of synthetic speech went through the actual local Whisper endpoint, populated the phone-task field without starting a run, and then launched Claude through the Run button. Claude used the real screenshot tool, correctly reported the locked Mirroring screen, and took no phone actions. A separate live run verified Stop, duplicate-run rejection, and manual-control exclusion. Your actual microphone and an unlocked-phone action task still need a live try.
+
 The attached photo identifies an Original Prusa i3 MK2 with an MK42 heatbed. It does not identify the controlling computer, connection, firmware revision, or any installed modifications. This harness runs locally with Python 3.10+ and no Python dependencies.
 
 ## Try it now
@@ -14,7 +51,7 @@ python3 harness.py --serve
 
 Open [the local console](http://127.0.0.1:8765). The default is **simulation**: it validates commands and records receipts without contacting hardware. Preview and confirm a command to simulate dispatch. The console shows the mode on every response.
 
-**Voice:** hold **Option+Space** in the console while speaking, then release. whisper.cpp transcribes locally and fills the prompt. Review or edit the text, then press **Enter** to preview the interpreted printer command. Use **Confirm execution** separately to dispatch it. The Record/Stop button is also available.
+**Printer voice:** focus the printer-command field and hold **Option+Space** while speaking, then release. whisper.cpp transcribes locally and fills the prompt. Review or edit the text, then press **Enter** to preview the interpreted printer command. Use **Confirm execution** separately to dispatch it. The Record/Stop button is also available. For Claude phone tasks, use the separate phone-task field above.
 
 ## Local voice SDK
 
@@ -157,7 +194,7 @@ Receipts and dispatch intents append to `events.jsonl`. A dispatch intent withou
 ## Verify
 
 ```sh
-python3 -m unittest discover -s tests -v
+.venv-voice/bin/python -m unittest discover -s tests -v
 ```
 
 Automated checks cover command/spoken parsing, spoken numbers, ambiguous prompts, bounds, previews, simulation, state gates, API payloads, bridge invocation, and uncertain partial failures. Hardware connection, physical motion, and real microphone speech still require testing with the actual setup.
