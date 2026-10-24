@@ -22,6 +22,12 @@ export interface Limits {
   readonly liveTokenMs: number;
   readonly maxFrameBytes: number;
   readonly maxJsonBytes: number;
+  /** An agent must have looked at the screen this recently to act. */
+  readonly observationMaxAgeMs: number;
+  readonly actionsPerTask: number;
+  readonly askTtlMs: number;
+  /** How long one ask_user call holds before telling the agent to keep waiting. */
+  readonly askWaitMs: number;
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -33,6 +39,10 @@ export const DEFAULT_LIMITS: Limits = {
   liveTokenMs: 30 * 60_000,
   maxFrameBytes: 2_000_000,
   maxJsonBytes: 1_000_000,
+  observationMaxAgeMs: 120_000,
+  actionsPerTask: 50,
+  askTtlMs: 10 * 60_000,
+  askWaitMs: 45_000,
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {

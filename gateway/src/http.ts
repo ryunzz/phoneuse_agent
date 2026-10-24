@@ -6,7 +6,10 @@ import type { Config } from './config.js';
 import { DASHBOARD_CSP, dashboardPage } from './dashboard.js';
 import { expiredPage, livePage, LiveViews, streamFrames } from './live.js';
 import { landingPage } from './landing.js';
+import { AskError, Asks } from './asks.js';
+import { Guards } from './guards.js';
 import { createMcpServer } from './mcp.js';
+import { createVlaProvider, type VlaProvider } from './vla.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { createReviewApi, REVIEW_CSP, ReviewError, reviewPage } from './review.js';
@@ -59,13 +62,15 @@ async function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
   }
 }
 
-export function createGateway(config: Config, store: Store): Gateway {
+export function createGateway(config: Config, store: Store, vla: VlaProvider | null = createVlaProvider()): Gateway {
   const { limits } = config;
   const hub = new RigHub(() => new Map(store.listRigs().map((rig) => [rig.id, rig.name])), limits);
   const usage = new UsageLedger(`${config.dataDir}/usage.jsonl`);
   const live = new LiveViews(limits.liveTokenMs);
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
   const traces = config.traceDir ? new TraceRecorder(config.traceDir) : null;
+  const guards = new Guards(limits);
+  const asks = new Asks(limits.askTtlMs);
 
   const requireKey = (req: IncomingMessage): string => {
     const secret = bearerToken(req, 'pu');
@@ -86,7 +91,7 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (req.method !== 'POST') return send(res, 405, { error: 'This MCP endpoint is stateless; use POST' });
     const body = await readJson(req, limits.maxJsonBytes);
     // Stateless Streamable HTTP: fresh server per request; rig leases live on the API key.
-    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces });
+    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces, guards, asks, vla });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();
@@ -96,6 +101,24 @@ export function createGateway(config: Config, store: Store): Gateway {
     await transport.handleRequest(req, res, body);
   };
 
+  const answerAsk = async (req: IncomingMessage, res: ServerResponse, keyId: string, id: string): Promise<void> => {
+    const body = (await readJson(req, 4096)) as { answer?: unknown };
+    if (typeof body?.answer !== 'string') throw new HttpError(400, 'Body must be {"answer": "..."}');
+    try {
+      asks.answer(keyId, id, body.answer);
+    } catch (error) {
+      if (error instanceof AskError) throw new HttpError(409, error.message);
+      throw error;
+    }
+    return send(res, 200, { answered: true });
+  };
+
+  const stopTask = async (req: IncomingMessage, res: ServerResponse, keyId: string): Promise<void> => {
+    const body = (await readJson(req, 4096).catch(() => ({}))) as { reason?: unknown };
+    guards.stop(keyId, typeof body?.reason === 'string' ? body.reason : 'stopped from the live view');
+    return send(res, 200, { stopped: true });
+  };
+
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? '/', 'http://gateway');
     const { pathname } = url;
@@ -103,6 +126,22 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (pathname === '/health') return send(res, 200, { ok: true });
     if (pathname === '/' && req.method === 'GET') return send(res, 200, landingPage(config.publicUrl), 'text/html; charset=utf-8', { 'Content-Security-Policy': PAGE_CSP, 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
     if (pathname === '/mcp') return handleMcp(req, res, requireKey(req));
+    if (pathname === '/v1/asks' && req.method === 'GET') return send(res, 200, { asks: asks.pending(requireKey(req)) });
+    const apiAsk = /^\/v1\/asks\/([0-9a-f-]{36})$/.exec(pathname);
+    if (apiAsk && req.method === 'POST') return answerAsk(req, res, requireKey(req), apiAsk[1]);
+    if (pathname === '/v1/stop' && req.method === 'POST') return stopTask(req, res, requireKey(req));
+
+    // Live-link holders (the person watching) can answer questions and stop the task.
+    const liveControl = /^\/live\/([\w-]{20,64})\/(asks|stop|asks\/([0-9a-f-]{36}))$/.exec(pathname);
+    if (liveControl) {
+      const view = live.resolve(liveControl[1]);
+      if (!view) throw new HttpError(404, 'This live-feed link is invalid or expired');
+      if (liveControl[2] === 'asks' && req.method === 'GET') return send(res, 200, { asks: asks.pending(view.keyId), guard: guards.status(view.keyId) });
+      if (liveControl[3] && req.method === 'POST') return answerAsk(req, res, view.keyId, liveControl[3]);
+      if (liveControl[2] === 'stop' && req.method === 'POST') return stopTask(req, res, view.keyId);
+      throw new HttpError(405, 'Method not allowed');
+    }
+
     if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.report(requireKey(req)));
     if (pathname === '/review' && req.method === 'GET') {
       return send(res, 200, reviewPage(), 'text/html; charset=utf-8', {

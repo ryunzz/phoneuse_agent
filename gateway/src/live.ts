@@ -59,6 +59,15 @@ main { flex: 1; display: flex; padding: 8px; min-height: 0; }
 .transport .right { font: 400 12px/16px var(--font-mono); color: var(--ink-faint); text-align: right; }
 .scrub { height: 2px; background: var(--panel-300); position: relative; }
 .scrub i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--playhead); }
+.ask { border-top: 1px solid var(--line); padding: 14px 12px; display: grid; gap: 10px; background: var(--panel-200); }
+.ask[hidden] { display: none; }
+.ask .k { font: 600 11px/16px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.ask p { margin: 0; font: 400 22px/28px var(--font-display); }
+.ask form { display: flex; gap: 8px; }
+.ask input { flex: 1; min-width: 0; font-size: 18px; letter-spacing: .12em; }
+.ask .msg { font: 400 12px/16px var(--font-mono); color: var(--ink-faint); min-height: 16px; }
+.stop { border-color: var(--rec); color: var(--rec); padding: 4px 10px; }
+.stop:hover { background: color-mix(in srgb, var(--rec) 14%, transparent); }
 @media (max-width: 560px) { .menubar .meta .hide-sm { display: none; } .monitor img { max-height: calc(100vh - 210px); } }
 </style></head><body>
 <header class="menubar"><span class="wordmark">Phone Use <em>live</em></span>
@@ -67,10 +76,14 @@ main { flex: 1; display: flex; padding: 8px; min-height: 0; }
 <div class="cap"><span>Program: <b>${name}</b></span><span id="res" class="mono"></span></div>
 <div class="monitor"><img id="feed" alt="Live screen of ${name}" src="/live/${token}/stream" hidden>
 <p class="empty" id="empty">Waiting for the rig<small>no signal</small></p></div>
+<section class="ask" id="ask" hidden aria-live="assertive">
+<span class="k">The agent is asking you</span><p id="askq"></p>
+<form id="askf" autocomplete="off"><input id="aska" aria-label="Your answer" required maxlength="500"><button type="submit">Send</button></form>
+<span class="msg" id="askm"></span></section>
 <div class="scrub" aria-hidden="true"><i id="scrub"></i></div>
 <div class="transport"><span class="state"><span class="dot" id="dot"></span><span id="state">connecting</span></span>
 <span class="timecode" id="tc">00:00:00:00</span>
-<span class="right">link expires <span id="ttl">--:--</span></span></div>
+<span class="right"><button class="stop" id="stop" type="button">Stop agent</button> · link expires <span id="ttl">--:--</span></span></div>
 </section></main>
 <footer class="footer"><span>mjpeg · read-only view</span><span>© 2026 Phone Use</span></footer>
 <script>
@@ -100,6 +113,45 @@ function tick() {
   requestAnimationFrame(tick);
 }
 tick();
+const base = '/live/${token}';
+let currentAsk = null;
+async function pollAsks() {
+  try {
+    const res = await fetch(base + '/asks', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const ask = data.asks[0] || null;
+    if (data.guard && data.guard.stopped) { $('stop').disabled = true; $('stop').textContent = 'Stopped'; }
+    if (!ask) { $('ask').hidden = true; currentAsk = null; return; }
+    if (currentAsk && currentAsk.id === ask.id) return;
+    currentAsk = ask;
+    $('askq').textContent = ask.question;
+    const input = $('aska');
+    input.value = '';
+    input.inputMode = ask.kind === 'code' ? 'numeric' : 'text';
+    input.autocomplete = ask.kind === 'code' ? 'one-time-code' : 'off';
+    input.placeholder = ask.kind === 'confirm' ? 'yes or no' : ask.kind === 'code' ? '6-digit code' : 'Your answer';
+    $('askm').textContent = '';
+    $('ask').hidden = false;
+    input.focus();
+  } catch {}
+}
+$('askf').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!currentAsk) return;
+  $('askm').textContent = 'Sending…';
+  const res = await fetch(base + '/asks/' + currentAsk.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: $('aska').value }) }).catch(() => null);
+  const data = res ? await res.json().catch(() => ({})) : {};
+  if (res && res.ok) { $('askm').textContent = 'Sent. The agent will continue.'; setTimeout(pollAsks, 800); }
+  else $('askm').textContent = data.error || 'Could not send; try again.';
+});
+$('stop').addEventListener('click', async () => {
+  if (!confirm('Stop the agent? It will not be able to act until a new task starts.')) return;
+  const res = await fetch(base + '/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'stopped from the live view' }) }).catch(() => null);
+  if (res && res.ok) { $('stop').disabled = true; $('stop').textContent = 'Stopped'; }
+});
+pollAsks();
+setInterval(pollAsks, 2000);
 </script></body></html>`;
 }
 
