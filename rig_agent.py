@@ -7,6 +7,7 @@ Every action from the gateway is validated with the same schema as the episode r
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import threading
@@ -104,8 +105,8 @@ class Gateway:
             raise ValueError('GATEWAY_URL must be an http(s) URL')
         if parsed.scheme == 'http' and parsed.hostname not in ('127.0.0.1', 'localhost'):
             raise ValueError('Use https for a non-local gateway; the rig token would be sent in clear text')
-        if not token.startswith('rig_'):
-            raise ValueError('RIG_TOKEN must be a rig token (rig_...)')
+        if not re.fullmatch(r'rig_[A-Za-z0-9_-]{16,100}', token):
+            raise ValueError('RIG_TOKEN must be a single rig token (rig_...), as printed by create-rig')
         self.url = url.rstrip('/')
         self.token = token
 
