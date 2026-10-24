@@ -1,7 +1,8 @@
 """Hard-coded phone tasks: fixed taps and swipes at screen fractions, with no camera or model in the loop.
 
 Positions come from controller/phone.json (see controller.phone), so re-measuring the phone's corners after it
-moves keeps every task working. Layout fractions are for an iPhone 16 Pro Max held upright.
+moves keeps every task working. Layout fractions are for this iPhone (16 Pro Max size) held upright, with
+AssistiveTouch on.
 
     python3 -m controller.tasks list
     python3 -m controller.tasks run home
@@ -39,9 +40,35 @@ class Screen:
         time.sleep(seconds)
 
 
-# Swiping up from the very bottom edge is the home gesture in any app.
+# AssistiveTouch (Settings > Accessibility > Touch) stands in for the edge gestures, which the stylus can't start
+# close enough to the bezel, and for the top of the screen, which is past the printer's Y travel. Single-tap opens
+# its menu. The button stays where it was dragged, and the menu opens in the same place each time.
+ASSISTIVE_TOUCH = (0.892, 0.786)
+MENU = {'home': (0.489, 0.828), 'notification_center': (0.489, 0.670), 'control_center': (0.733, 0.781)}
+# Home screen icons on this phone, page 1.
+ICONS = {'settings': (0.144, 0.555)}
+
+
+def menu(s, item):
+    s.tap(*ASSISTIVE_TOUCH, 'assistive touch')
+    s.tap(*MENU[item], item.replace('_', ' '))
+
+
 def home(s):
-    s.swipe(0.5, 0.985, 0.5, 0.6, 'home')
+    menu(s, 'home')
+
+
+def notification_center(s):
+    menu(s, 'notification_center')
+
+
+def control_center(s):
+    menu(s, 'control_center')
+
+
+def open_app(s, name):
+    home(s)
+    s.tap(*ICONS[name], name)
 
 
 # Dragging content up shows what is further down the page.
@@ -67,7 +94,17 @@ def spotlight(s):
     s.swipe(0.5, 0.35, 0.5, 0.65, 'spotlight')
 
 
-TASKS = {f.__name__: f for f in (home, scroll_down, scroll_up, next_page, previous_page, spotlight)}
+# A longer fixed sequence: open Settings, scroll through it and back, return home.
+def settings_tour(s):
+    open_app(s, 'settings')
+    scroll_down(s)
+    scroll_down(s)
+    scroll_up(s)
+    home(s)
+
+
+TASKS = {f.__name__: f for f in (home, notification_center, control_center, scroll_down, scroll_up, next_page,
+                                 previous_page, spotlight, settings_tour)}
 
 
 def main(argv=None):

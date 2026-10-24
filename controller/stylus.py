@@ -24,9 +24,10 @@ class Stylus:
     """The rubber tip grips the glass, so a slow or deep stroke turns into a long-press. Swipes therefore touch
     down and lift off while already moving, and drag fast; taps go straight down, pause briefly and come up."""
 
-    def __init__(self, printer, touch_z=TOUCH_Z, hover_mm=HOVER_MM, press_mm=0.3, dwell=0.1,
+    def __init__(self, printer, touch_z=TOUCH_Z, hover_mm=HOVER_MM, press_mm=0.3, dwell=0.1, drag_press_mm=0.0,
                  drag_feed=6000, contact_feed=1500, travel_feed=3000):
         self.printer, self.touch_z, self.hover_z = printer, touch_z, touch_z + hover_mm
+        self.drag_z = touch_z - drag_press_mm
         self.press_z, self.dwell = touch_z - press_mm, dwell   # dwell well under iOS's ~0.5 s long-press
         self.drag_feed, self.contact_feed, self.travel_feed = drag_feed, contact_feed, travel_feed
 
@@ -56,7 +57,7 @@ class Stylus:
         check(*end)
         self.hover(*start)
         move = self.printer.move
-        move(x=x0, y=y0, z=self.touch_z, feed=self.contact_feed, wait=False)    # touch down while moving
+        move(x=x0, y=y0, z=self.drag_z, feed=self.contact_feed, wait=False)    # touch down while moving
         move(x=x1, y=y1, feed=self.drag_feed, wait=False)
         move(x=end[0], y=end[1], z=self.hover_z, feed=self.contact_feed)        # lift while moving
 
