@@ -96,12 +96,12 @@ struct AttemptView: View {
                         }
                     }
                 } else if attempt.phase != .submitted {
-                    RecordingHowTo()
                     PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
                         Label("Choose screen recording", systemImage: "video.badge.plus")
                             .font(.headline)
                     }
                     .accessibilityIdentifier("chooseRecording")
+                    RecordingHowTo()
                 }
                 if isImporting { ProgressView("Preparing video…") }
                 if let importError { Text(importError).foregroundStyle(.red) }
@@ -133,11 +133,18 @@ struct AttemptView: View {
             }
 
             if attempt.phase != .submitted {
-                submitSection(attempt)
                 Section {
                     Button("Abandon this attempt", role: .destructive) { confirmAbandon = true }
                         .disabled(attempt.phase == .uploading)
                 }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if attempt.phase != .submitted {
+                submitBar(attempt)
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .background(.bar)
             }
         }
         .navigationTitle("Your attempt")
@@ -156,30 +163,29 @@ struct AttemptView: View {
         }
     }
 
+    /// Pinned under the form so the main action never needs scrolling.
     @ViewBuilder
-    private func submitSection(_ attempt: Attempt) -> some View {
-        Section {
+    private func submitBar(_ attempt: Attempt) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             switch attempt.phase {
             case .uploading:
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Uploading to the review Mac…")
-                    ProgressView(value: model.uploadProgress[attemptID] ?? 0)
-                    Text("Keep the app open until it finishes.").font(.footnote).foregroundStyle(.secondary)
-                }
+                Text("Uploading to the review Mac…")
+                ProgressView(value: model.uploadProgress[attemptID] ?? 0)
+                Text("Keep the app open until it finishes.").font(.footnote).foregroundStyle(.secondary)
             case .failed:
                 Label(attempt.lastError ?? "The upload failed.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
                     .foregroundStyle(.red)
+                    .lineLimit(4)
                 submitButton(attempt, title: "Retry upload")
             default:
-                submitButton(attempt, title: "Submit recording")
                 if attempt.consentedAt == nil {
-                    Text("Agree to the consent above first.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Agree to the consent first.").font(.footnote).foregroundStyle(.secondary)
                 } else if attempt.videoFile == nil {
                     Text("Choose your screen recording first.").font(.footnote).foregroundStyle(.secondary)
                 }
+                submitButton(attempt, title: "Submit recording")
             }
-        } header: {
-            Text("4. Submit")
         }
     }
 

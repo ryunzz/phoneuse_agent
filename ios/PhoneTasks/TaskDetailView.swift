@@ -41,19 +41,20 @@ struct TaskDetailView: View {
                 Label("Use test content only. Don't show messages, contacts, photos, or account details you wouldn't want reviewed.", systemImage: "hand.raised")
                     .font(.callout)
             }
-            Section {
-                Button {
-                    openAttempt = model.startAttempt(for: task).id
-                } label: {
-                    Text(model.openAttempt(for: task) == nil ? "Start task" : "Continue attempt")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .listRowInsets(EdgeInsets())
-                .accessibilityIdentifier("startTask")
+        }
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                openAttempt = model.startAttempt(for: task).id
+            } label: {
+                Text(model.openAttempt(for: task) == nil ? "Start task" : "Continue attempt")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("startTask")
         }
         .navigationTitle(task.targetApp)
         .navigationBarTitleDisplayMode(.inline)
