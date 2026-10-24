@@ -1,13 +1,5 @@
-import { networkInterfaces } from 'node:os';
-import { loadConfig } from './config.js';
+import { lanAddress, loadConfig } from './config.js';
 import { JsonFileStore } from './store.js';
-
-/** The Mac's Wi-Fi address, which the iPhone app uses to reach this gateway. */
-function lanAddress(): string | null {
-  const all = networkInterfaces();
-  const ordered = [...(all.en0 ?? []), ...Object.values(all).flat()];
-  return ordered.find((entry) => entry && entry.family === 'IPv4' && !entry.internal)?.address ?? null;
-}
 
 const USAGE = `Usage:
   bun run admin create-key <name>    Issue an API key (shown once)
@@ -41,7 +33,7 @@ Pairing string (paste into the app's Settings):
   http://${host}:${config.port}#${secret}
 Simulator on this Mac:
   http://127.0.0.1:${config.port}#${secret}
-Run the gateway with HOST=0.0.0.0 so the phone can reach it. Store this now; it cannot be shown again.`);
+Start the gateway with "bun run phone" so the phone can reach it. Store this now; it cannot be shown again.`);
       return 0;
     }
     case 'revoke-contributor':

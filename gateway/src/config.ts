@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 
 export interface Config {
@@ -62,4 +63,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     reviewToken,
     limits: DEFAULT_LIMITS,
   };
+}
+
+/** The Mac's Wi-Fi address, which the iPhone app uses to reach this gateway. It can change on reconnect. */
+export function lanAddress(): string | null {
+  const all = networkInterfaces();
+  const ordered = [...(all.en0 ?? []), ...Object.values(all).flat()];
+  return ordered.find((entry) => entry && entry.family === 'IPv4' && !entry.internal)?.address ?? null;
 }
