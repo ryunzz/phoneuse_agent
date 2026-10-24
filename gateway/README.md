@@ -15,6 +15,15 @@ RIG_TOKEN=rig_... uv run rig_agent.py --backend sim
 
 Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
 
+## iPhone task app (contributors)
+
+The same process serves the [Phone Tasks app](../ios/README.md): `GET /c/v1/tasks` (catalog in `tasks.json`) and idempotent video submissions under `/c/v1/submissions`, with contributor keys (`ct_…`) that cannot use MCP or rig routes. Review on the Mac at `http://127.0.0.1:8787/review`; the review page and `/admin/v1/*` only answer on loopback.
+
+```sh
+HOST=0.0.0.0 bun run dev                       # reachable from the phone on the same Wi-Fi
+bun run admin create-contributor "Your name"   # prints the pairing string for the app
+```
+
 ## Connect Claude
 
 ```sh
@@ -33,7 +42,8 @@ The gateway keeps rig queues, leases and frames in memory, so run it as **one lo
 | --- | --- | --- |
 | `HOST` / `PORT` | `127.0.0.1` / `8787` | Listen address |
 | `PUBLIC_URL` | `http://HOST:PORT` | Base for live-feed links |
-| `DATA_DIR` | `./data` | API keys/rigs (hashed) and the usage ledger |
+| `DATA_DIR` | `./data` | API keys/rigs/contributors (hashed), the usage ledger, and `submissions/` |
+| `TASKS_FILE` | `./tasks.json` | Contributor task catalog |
 
 ## Test
 
