@@ -4,8 +4,9 @@ import { commandResultSchema } from './actions.js';
 import { bearerToken } from './auth.js';
 import type { Config } from './config.js';
 import { DASHBOARD_CSP, dashboardPage } from './dashboard.js';
-import { livePage, LiveViews, streamFrames } from './live.js';
+import { expiredPage, livePage, LiveViews, streamFrames } from './live.js';
 import { createMcpServer } from './mcp.js';
+import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { RigHub } from './rigs.js';
 import type { Store } from './store.js';
@@ -138,14 +139,21 @@ export function createGateway(config: Config, store: Store): Gateway {
     const liveMatch = /^\/live\/([\w-]{20,64})(\/stream|\/frame\.jpg)?$/.exec(pathname);
     if (liveMatch && req.method === 'GET') {
       const view = live.resolve(liveMatch[1]);
-      if (!view) throw new HttpError(404, 'This live-feed link is invalid or expired');
+      if (!view) {
+        if (liveMatch[2]) throw new HttpError(404, 'This live-feed link is invalid or expired');
+        return send(res, 404, expiredPage(), 'text/html; charset=utf-8', { 'Content-Security-Policy': PAGE_CSP });
+      }
       if (liveMatch[2] === '/stream') return streamFrames(res, hub, view);
       if (liveMatch[2] === '/frame.jpg') {
         const frame = hub.latestFrame(view.rigId);
         return frame ? send(res, 200, frame.data, 'image/jpeg') : send(res, 503, { error: 'No frame yet' });
       }
       const name = store.listRigs().find((rig) => rig.id === view.rigId)?.name ?? view.rigId;
-      return send(res, 200, livePage(liveMatch[1], name), 'text/html; charset=utf-8');
+      return send(res, 200, livePage(liveMatch[1], name, view.expiresAt), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': PAGE_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
     }
 
     throw new HttpError(404, 'Not found');
