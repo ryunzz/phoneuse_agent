@@ -136,8 +136,9 @@ and review history. Unfinished uploads never reach the review queue.
 
 **Networking:** run `HOST=0.0.0.0 bun run dev` on trusted Wi-Fi only. That also exposes `/mcp`
 and `/rig` on the LAN; they still require their own tokens. The app's Info.plist sets
-`NSAllowsLocalNetworking` (plain HTTP to a LAN address) and `NSLocalNetworkUsageDescription`
-(iOS asks for local-network access on first use).
+`NSAllowsArbitraryLoads` (plain HTTP to the Mac's Wi-Fi IP; `NSAllowsLocalNetworking` alone was
+refused for an IP address in testing) and `NSLocalNetworkUsageDescription` (iOS asks for
+local-network access on first use). The Mac's Wi-Fi IP can change; re-pair with the new IP.
 
 ### Review page
 
@@ -159,7 +160,10 @@ editing, and training.
 
 ## Installing on the iPhone
 
-- Open `ios/PhoneTasks.xcodeproj`. Under Signing & Capabilities pick your team (a free
+Step-by-step instructions: [../ios/README.md](../ios/README.md).
+
+- Open `ios/PhoneTasks.xcodeproj`. Install the matching iOS platform under Xcode → Settings →
+  Components if Xcode asks. Under Signing & Capabilities pick your team (a free
   Apple ID works) and change the bundle identifier if Xcode says it is taken.
 - Connect the iPhone, trust the Mac, enable Developer Mode (Settings → Privacy & Security),
   select the phone as the run destination, and Run.
