@@ -3,6 +3,10 @@ import { test } from 'bun:test';
 import { DEFAULT_LIMITS } from '../src/config.js';
 import { RateLimiter } from '../src/ratelimit.js';
 import { RigError, RigHub } from '../src/rigs.js';
+import { JsonFileStore } from '../src/store.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const limits = { ...DEFAULT_LIMITS, commandTimeoutMs: 200 };
 
@@ -76,4 +80,12 @@ test('rate limiter caps requests per window', () => {
   assert.equal(limiter.allow('k'), false);
   clock.t = 1001;
   assert.equal(limiter.allow('k'), true);
+});
+
+test('store picks up keys created by another process', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'store-'));
+  const server = new JsonFileStore(path.join(dir, 'store.json'));
+  const { secret } = new JsonFileStore(path.join(dir, 'store.json')).createKey('cli');
+  assert.equal(server.findKeyBySecret(secret)?.name, 'cli');
+  assert.equal(server.findKeyBySecret('pu_nope'), null);
 });

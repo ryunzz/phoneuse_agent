@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { generateId, generateSecret, hashSecret } from './auth.js';
 
@@ -42,10 +42,31 @@ function validName(name: string): string {
 }
 
 export class JsonFileStore implements Store {
-  private data: StoreData;
+  private snapshot: StoreData;
+  private mtimeMs = -1;
 
   constructor(private readonly file: string) {
-    this.data = JsonFileStore.read(file);
+    this.snapshot = EMPTY;
+    this.reloadIfChanged();
+  }
+
+  /** Pick up keys/rigs created by the admin CLI while the gateway is running. */
+  private reloadIfChanged(): void {
+    let mtimeMs = 0;
+    try {
+      mtimeMs = statSync(this.file).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (mtimeMs !== this.mtimeMs) {
+      this.snapshot = JsonFileStore.read(this.file);
+      this.mtimeMs = mtimeMs;
+    }
+  }
+
+  private get data(): StoreData {
+    this.reloadIfChanged();
+    return this.snapshot;
   }
 
   private static read(file: string): StoreData {
@@ -63,7 +84,8 @@ export class JsonFileStore implements Store {
     const temp = `${this.file}.${process.pid}.tmp`;
     writeFileSync(temp, JSON.stringify(next, null, 2), { mode: 0o600 });
     renameSync(temp, this.file);
-    this.data = next;
+    this.snapshot = next;
+    this.mtimeMs = statSync(this.file).mtimeMs;
   }
 
   findKeyBySecret(secret: string): ApiKeyRecord | null {
