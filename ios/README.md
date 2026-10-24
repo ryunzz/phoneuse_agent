@@ -1,7 +1,7 @@
 # Phone Tasks (iPhone app)
 
 Contributors pick a task, screen-record themselves doing it, and upload the recording to the
-gateway on our Mac over Wi-Fi. We review it at `http://127.0.0.1:8787/review`, and the decision
+gateway on our Mac over Wi-Fi. We review it at `http://127.0.0.1:8787/review/submissions`, and the decision
 shows up in the app. Local only: installed from Xcode, never published. Spec:
 [../docs/IPHONE_APP_PLAN.md](../docs/IPHONE_APP_PLAN.md).
 
@@ -50,7 +50,7 @@ Free-team installs expire after 7 days; press Run again to renew.
 3. Start iOS screen recording (Control Center → Screen Recording), do the task, and stop the
    recording.
 4. Back in the app: **Choose screen recording**, check the preview, tap **Submit recording**.
-5. On the Mac, open http://127.0.0.1:8787/review, play it, and approve or reject (rejecting
+5. On the Mac, open http://127.0.0.1:8787/review/submissions, play it, and approve or reject (rejecting
    needs a reason).
 6. In the app, **My submissions** shows the decision and feedback.
 

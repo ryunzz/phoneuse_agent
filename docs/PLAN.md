@@ -9,7 +9,8 @@ We are building a **VLA (vision-language-action) model for phones** and selling 
 1. A developer gets an API key from us (`pu_…`). For now there's one key, issued with `bun run admin create-key`. Self-serve signup isn't planned yet.
 2. They add our **remote MCP server** to Claude (Claude Code, Claude Desktop, or the MCP directory) by passing the URL `https://<gateway>/mcp` and the header `Authorization: Bearer pu_…`. There's nothing to install locally.
 3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone, iPhone Mirroring and the stylus robot (the Prusa printer harness).
-4. Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_disconnect`, `usage_get`.
+4. Tools: `rigs_list`, `phone_connect(task)`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_task_done(outcome)`, `phone_disconnect`, `usage_get`.
+   Every session is recorded as a VLA training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
 5. `phone_live_feed` returns a short-lived URL. Opening it shows a live MJPEG view of the phone in any browser.
 6. Every tool call is metered in **tokens** per API key: a base price per tool plus the estimated image tokens of the screenshots we return. Failed calls are free. `/dashboard` shows tokens billed, image tokens, calls, rig time, and a per-minute chart. Each tool result also says what it cost.
 7. Users who aren't on MCP get the same rig through a web console (later: voice mode via the existing whisper.cpp stack).
@@ -19,7 +20,7 @@ We are building a **VLA (vision-language-action) model for phones** and selling 
 1. A contributor installs the app from Xcode on their own iPhone. It is not published to TestFlight or the App Store.
 2. The app shows a task ("Change the translation language in Apple Translate").
 3. They record the screen with iOS screen recording while doing the task, then pick the recording in the app.
-4. The app uploads it over Wi-Fi to the gateway on our Mac. We review it on `/review`, and the decision shows up in the app. iOS does **not** expose touches made in other apps, so a submission is a demonstration video, not an action trace.
+4. The app uploads it over Wi-Fi to the gateway on our Mac. We review it on `/review/submissions`, and the decision shows up in the app. iOS does **not** expose touches made in other apps, so a submission is a demonstration video, not an action trace.
 5. Payouts (ETH or otherwise) and the ReplayKit broadcast extension are deferred.
 
 Full spec: [IPHONE_APP_PLAN.md](IPHONE_APP_PLAN.md).

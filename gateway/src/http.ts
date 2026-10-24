@@ -10,9 +10,11 @@ import { expiredPage, livePage, LiveViews, streamFrames } from './live.js';
 import { createMcpServer } from './mcp.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
+import { createReviewApi, REVIEW_CSP, ReviewError, reviewPage } from './review.js';
 import { RigHub } from './rigs.js';
+import { TraceRecorder } from './traces.js';
 import type { Store } from './store.js';
-import { REVIEW_CSP, reviewPage } from './review.js';
+import { SUBMISSION_REVIEW_CSP, submissionReviewPage } from './submission-review.js';
 import { createSubmissionSchema, loadTasks, reviewSchema, SubmissionError, SubmissionStore, VIDEO_TYPES } from './submissions.js';
 import { UsageLedger } from './usage.js';
 
@@ -158,6 +160,7 @@ export function createGateway(config: Config, store: Store): Gateway {
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
   const submissions = new SubmissionStore(`${config.dataDir}/submissions`, loadTasks(config.tasksFile));
   const contributorLimiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const traces = config.traceDir ? new TraceRecorder(config.traceDir) : null;
 
   const requireKey = (req: IncomingMessage): string => {
     const secret = bearerToken(req, 'pu');
@@ -186,7 +189,7 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (req.method !== 'POST') return send(res, 405, { error: 'This MCP endpoint is stateless; use POST' });
     const body = await readJson(req, limits.maxJsonBytes);
     // Stateless Streamable HTTP: fresh server per request; rig leases live on the API key.
-    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits });
+    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();
@@ -203,6 +206,22 @@ export function createGateway(config: Config, store: Store): Gateway {
     if (pathname === '/health') return send(res, 200, { ok: true });
     if (pathname === '/mcp') return handleMcp(req, res, requireKey(req));
     if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.report(requireKey(req)));
+    if (pathname === '/review' && req.method === 'GET') {
+      return send(res, 200, reviewPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': REVIEW_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    }
+    if (pathname.startsWith('/v1/episodes')) {
+      try {
+        const reviewed = await createReviewApi(config.traceDir, config.reviewToken).handle(req, pathname, () => readJson(req, limits.maxJsonBytes));
+        if (reviewed) return send(res, reviewed.status, reviewed.body, reviewed.type);
+      } catch (error) {
+        if (error instanceof ReviewError) throw new HttpError(error.status, error.message);
+        throw error;
+      }
+    }
     if (pathname === '/dashboard' && req.method === 'GET') {
       return send(res, 200, dashboardPage(), 'text/html; charset=utf-8', {
         'Content-Security-Policy': DASHBOARD_CSP,
@@ -275,10 +294,10 @@ export function createGateway(config: Config, store: Store): Gateway {
       return send(res, 200, submissions.complete(subMatch[1], contributorId, body.sha256));
     }
 
-    if (pathname === '/review' && req.method === 'GET') {
+    if (pathname === '/review/submissions' && req.method === 'GET') {
       requireLocalAdmin(req, false);
-      return send(res, 200, reviewPage(), 'text/html; charset=utf-8', {
-        'Content-Security-Policy': REVIEW_CSP,
+      return send(res, 200, submissionReviewPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': SUBMISSION_REVIEW_CSP,
         'X-Frame-Options': 'DENY',
         'Referrer-Policy': 'no-referrer',
       });

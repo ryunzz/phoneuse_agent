@@ -16,7 +16,9 @@ struct PhoneAction {
                 throw failure("Invalid action or frame metadata")
             }
             guard AXIsProcessTrusted() else { throw failure("Enable Accessibility for the launching terminal/app in System Settings") }
-            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            // The console is normally in front. Include obscured windows, then still
+            // require the exact captured ID, app, title, and unchanged bounds.
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             guard let window = content.windows.first(where: {
                 $0.windowID == windowID && $0.owningApplication?.bundleIdentifier == "com.apple.ScreenContinuity" && $0.title == "iPhone Mirroring"
             }), let pid = window.owningApplication?.processID,

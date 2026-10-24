@@ -11,6 +11,7 @@ export const DEFAULT_PRICING: Readonly<Record<string, number>> = {
   phone_live_feed: 200,
   phone_connect: 0,
   phone_disconnect: 0,
+  phone_task_done: 0,
   rigs_list: 0,
   usage_get: 0,
 };

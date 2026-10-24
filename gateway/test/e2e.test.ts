@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -42,7 +42,7 @@ before(async () => {
   const store = new JsonFileStore(path.join(dataDir, 'store.json'));
   apiKey = store.createKey('e2e').secret;
   const rigToken = store.createRig('sim rig').secret;
-  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, limits: { ...DEFAULT_LIMITS, settleMs: 100 } };
+  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: path.join(dataDir, 'demonstrations'), reviewToken: 'r'.repeat(32), limits: { ...DEFAULT_LIMITS, settleMs: 100 } };
   gateway = createGateway(config, store);
   await new Promise<void>((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(gateway.server.address() as AddressInfo).port}`;
@@ -72,7 +72,7 @@ test('Claude-style client drives the sim rig end to end', async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), [
     'phone_connect', 'phone_disconnect', 'phone_home', 'phone_live_feed', 'phone_screenshot',
-    'phone_scroll', 'phone_tap', 'phone_type', 'rigs_list', 'usage_get',
+    'phone_scroll', 'phone_tap', 'phone_task_done', 'phone_type', 'rigs_list', 'usage_get',
   ]);
 
   const shot = await client.callTool({ name: 'phone_screenshot', arguments: {} });
@@ -113,5 +113,27 @@ test('Claude-style client drives the sim rig end to end', async () => {
 
   const released = await client.callTool({ name: 'phone_disconnect', arguments: {} });
   assert.match(JSON.stringify(released.content), /Released rig_/);
+  await client.close();
+});
+
+test('a task session is recorded as a training episode', async () => {
+  const client = await connect(apiKey);
+  const started = await client.callTool({ name: 'phone_connect', arguments: { task: 'Open Settings', task_family: 'settings' } });
+  const episodeId = /episode ([0-9a-f]{32})/.exec(JSON.stringify(started.content))?.[1];
+  assert.ok(episodeId, JSON.stringify(started.content));
+  await client.callTool({ name: 'phone_tap', arguments: { x: 0.8, y: 0.9, reason: 'open Settings' } });
+  await client.callTool({ name: 'phone_type', arguments: { text: 'wifi', reason: 'search' } });
+  const done = await client.callTool({ name: 'phone_task_done', arguments: { outcome: 'success', note: 'done' } });
+  assert.match(JSON.stringify(done.content), /Recorded success .* \(2 steps\)/);
+
+  const folder = path.join(dataDir, 'demonstrations', episodeId);
+  const steps = readFileSync(path.join(folder, 'steps.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(steps.map((row) => `${row.event}:${row.step}:${row.status ?? row.label}`), [
+    'intent:1:unreviewed', 'result:1:complete', 'intent:2:unreviewed', 'result:2:complete',
+  ]);
+  assert.equal(steps[0].note, 'open Settings');
+  assert.deepEqual(steps[2].action, { type: 'type', text: 'wifi' });
+  assert.equal(JSON.parse(readFileSync(path.join(folder, 'episode.json'), 'utf8')).group, 'settings');
+  await client.callTool({ name: 'phone_disconnect', arguments: {} });
   await client.close();
 });

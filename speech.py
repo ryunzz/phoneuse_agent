@@ -85,8 +85,8 @@ class Speech:
                 raise ValueError('Audio could not be transcribed. Record again or type the prompt.') from None
             if not text:
                 raise ValueError('No speech detected. Try again closer to the microphone.')
-            if len(text) > 200:
-                raise ValueError('Transcript too long. Speak one short printer command.')
+            if len(text) > 2000:
+                raise ValueError('Transcript too long. Speak a shorter task.')
             return {'text': text, 'engine': 'whisper.cpp', 'model': 'base.en', 'processing': 'local'}
         finally:
             self.lock.release()

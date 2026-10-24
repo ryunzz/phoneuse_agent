@@ -32,7 +32,7 @@ That is a handful of routes on the existing Bun gateway (`gateway/`), reached at
 | --- | --- | --- |
 | iPhone app | `ios/` (SwiftUI) | Browse tasks, import a recording, submit, see review status |
 | Mac receiver | `gateway/src/submissions.ts` | Task catalog, idempotent uploads, review state |
-| Review page | `GET /review` on the gateway, Mac only | Play videos, approve/reject, stats |
+| Review page | `GET /review/submissions` on the gateway, Mac only | Play videos, approve/reject, stats |
 | Controller | existing harness and MCP | Unchanged; contributor keys cannot reach it |
 
 The contributor app and the Claude harness produce different kinds of evidence. Keep their
@@ -125,7 +125,7 @@ Host header, and reject cross-site writes:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /review` | Review page |
+| `GET /review/submissions` | Review page (`/review` is the separate episode review) |
 | `GET /admin/v1/submissions` | Completed submissions and stats |
 | `GET /admin/v1/submissions/{id}/media` | Video with Range support |
 | `POST /admin/v1/submissions/{id}/review` | Approve, or reject with a reason; history is kept |

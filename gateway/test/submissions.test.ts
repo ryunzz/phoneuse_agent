@@ -65,7 +65,7 @@ before(async () => {
   alice = store.createContributor('alice').secret;
   bob = store.createContributor('bob').secret;
   apiKey = store.createKey('dev').secret;
-  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, limits: { ...DEFAULT_LIMITS, maxVideoBytes: 200_000 } };
+  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: null, reviewToken: null, limits: { ...DEFAULT_LIMITS, maxVideoBytes: 200_000 } };
   gateway = createGateway(config, store);
   await new Promise<void>((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(gateway.server.address() as AddressInfo).port}`;
@@ -179,7 +179,7 @@ test('admin routes refuse contributor keys from other hosts and cross-site write
   assert.equal(crossSite.status, 403);
   const noJson = await fetch(`${base}/admin/v1/submissions/${done.id}/review`, { method: 'POST', body: 'decision=approved', headers: { 'Content-Type': 'text/plain' } });
   assert.equal(noJson.status, 415);
-  const page = await admin('/review');
+  const page = await admin('/review/submissions');
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Review/);
 });
@@ -187,7 +187,7 @@ test('admin routes refuse contributor keys from other hosts and cross-site write
 test('submissions survive a gateway restart', async () => {
   const done = await submit(alice);
   const store = new JsonFileStore(path.join(dataDir, 'store.json'));
-  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, limits: DEFAULT_LIMITS };
+  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: null, reviewToken: null, limits: DEFAULT_LIMITS };
   const reborn = createGateway(config, store);
   assert.equal(reborn.submissions.get(done.id).state, 'pending_review');
 });
