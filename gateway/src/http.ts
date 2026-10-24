@@ -5,6 +5,7 @@ import { bearerToken } from './auth.js';
 import type { Config } from './config.js';
 import { DASHBOARD_CSP, dashboardPage } from './dashboard.js';
 import { expiredPage, livePage, LiveViews, streamFrames } from './live.js';
+import { landingPage } from './landing.js';
 import { createMcpServer } from './mcp.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
@@ -100,6 +101,7 @@ export function createGateway(config: Config, store: Store): Gateway {
     const { pathname } = url;
 
     if (pathname === '/health') return send(res, 200, { ok: true });
+    if (pathname === '/' && req.method === 'GET') return send(res, 200, landingPage(config.publicUrl), 'text/html; charset=utf-8', { 'Content-Security-Policy': PAGE_CSP, 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' });
     if (pathname === '/mcp') return handleMcp(req, res, requireKey(req));
     if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.report(requireKey(req)));
     if (pathname === '/review' && req.method === 'GET') {
