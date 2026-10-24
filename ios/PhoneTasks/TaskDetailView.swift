@@ -12,7 +12,7 @@ struct TaskDetailView: View {
                 Text(task.summary)
                 HStack(spacing: 12) {
                     Label("About \(Int(task.estimatedMinutes.rounded())) min", systemImage: "clock")
-                    Label(task.targetApp, systemImage: "app")
+                    Label(task.targetApp, systemImage: "iphone")
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

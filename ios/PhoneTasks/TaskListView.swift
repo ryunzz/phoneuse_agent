@@ -47,7 +47,7 @@ struct TaskRow: View {
             Text(task.summary).font(.subheadline).foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Label("About \(Int(task.estimatedMinutes.rounded())) min", systemImage: "clock")
-                Label(task.targetApp, systemImage: "app")
+                Label(task.targetApp, systemImage: "iphone")
                 if let reward = task.reward {
                     Label("\(reward.amount.formatted()) \(reward.unit)", systemImage: "gift")
                 }
