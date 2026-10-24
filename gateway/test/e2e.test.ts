@@ -99,8 +99,17 @@ test('Claude-style client drives the sim rig end to end', async () => {
   const usage = await client.callTool({ name: 'usage_get', arguments: {} });
   const summary = JSON.parse((usage.content as Array<{ text: string }>)[0].text);
   // Schema-invalid calls are rejected before metering, so only the valid tap is billed.
-  assert.equal(summary.byTool.phone_tap, 1);
+  assert.equal(summary.byTool.phone_tap.calls, 1);
+  assert.ok(summary.tokens > 0 && summary.imageTokens > 0, 'calls are billed in tokens');
   assert.ok(summary.images >= 2);
+
+  const report = await (await fetch(`${base}/v1/usage`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+  assert.equal(report.tokens, summary.tokens + report.byTool.usage_get.tokens);
+  assert.equal(report.perMinute.length, 60);
+  assert.ok(report.recent.length >= 4);
+  const dashboard = await fetch(`${base}/dashboard`);
+  assert.equal(dashboard.status, 200);
+  assert.match(dashboard.headers.get('content-security-policy') ?? '', /default-src 'self'/);
 
   const released = await client.callTool({ name: 'phone_disconnect', arguments: {} });
   assert.match(JSON.stringify(released.content), /Released rig_/);

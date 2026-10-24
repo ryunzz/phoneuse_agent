@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { commandResultSchema } from './actions.js';
 import { bearerToken } from './auth.js';
 import type { Config } from './config.js';
+import { DASHBOARD_CSP, dashboardPage } from './dashboard.js';
 import { livePage, LiveViews, streamFrames } from './live.js';
 import { createMcpServer } from './mcp.js';
 import { RateLimiter } from './ratelimit.js';
@@ -21,9 +22,9 @@ class HttpError extends Error {
   }
 }
 
-function send(res: ServerResponse, status: number, body: unknown, type = 'application/json'): void {
+function send(res: ServerResponse, status: number, body: unknown, type = 'application/json', extra: Record<string, string> = {}): void {
   const data = typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
   res.end(data);
 }
 
@@ -96,7 +97,14 @@ export function createGateway(config: Config, store: Store): Gateway {
 
     if (pathname === '/health') return send(res, 200, { ok: true });
     if (pathname === '/mcp') return handleMcp(req, res, requireKey(req));
-    if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.summary(requireKey(req)));
+    if (pathname === '/v1/usage' && req.method === 'GET') return send(res, 200, usage.report(requireKey(req)));
+    if (pathname === '/dashboard' && req.method === 'GET') {
+      return send(res, 200, dashboardPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': DASHBOARD_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    }
 
     if (pathname === '/rig/v1/commands' && req.method === 'GET') {
       const rigId = requireRig(req);
