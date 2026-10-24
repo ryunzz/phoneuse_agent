@@ -1,6 +1,6 @@
 # Phone Use: product flow, contracts, and work split
 
-We are building a **VLA (vision-language-action) model for phones** and selling access to **cloud phones**: real phones on our hardware rigs that any agent can drive over MCP. Usage is billed in tokens. Every run also produces training traces for the VLA.
+We are building a **VLM (vision-language model) for phones** and selling access to **cloud phones**: real phones on our hardware rigs that any agent can drive over MCP. Usage is billed in tokens. Every run also produces training traces for the VLM.
 
 ## Product flows
 
@@ -10,18 +10,20 @@ We are building a **VLA (vision-language-action) model for phones** and selling 
 2. They add our **remote MCP server** to Claude (Claude Code, Claude Desktop, or the MCP directory) by passing the URL `https://<gateway>/mcp` and the header `Authorization: Bearer pu_…`. There's nothing to install locally.
 3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone, iPhone Mirroring and the stylus robot (the Prusa printer harness).
 4. Tools: `rigs_list`, `phone_connect(task)`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_task_done(outcome)`, `phone_disconnect`, `usage_get`.
-   Every session is recorded as a VLA training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
+   Every session is recorded as a VLM training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
 5. `phone_live_feed` returns a short-lived URL. Opening it shows a live MJPEG view of the phone in any browser.
 6. Every tool call is metered in **tokens** per API key: a base price per tool plus the estimated image tokens of the screenshots we return. Failed calls are free. `/dashboard` shows tokens billed, image tokens, calls, rig time, and a per-minute chart. Each tool result also says what it cost.
 7. Users who aren't on MCP get the same rig through a web console (later: voice mode via the existing whisper.cpp stack).
 
-### B. TestFlight data-collection app (paid in ETH)
+### B. iPhone task collection app (local, Xcode install)
 
-1. A person installs the TestFlight app and connects an Ethereum wallet address.
-2. The app shows a task prompt ("Turn on Dark Mode in Settings").
-3. They start a **ReplayKit broadcast**. That's iOS system screen recording, so it covers all apps, not just ours. Then they do the task on their real phone.
-4. A Broadcast Upload Extension sends sampled frames and timestamps to our backend. iOS does **not** expose touches made in other apps. Actions get inferred from frame diffs or a VLM later. Verification checks the final frames against the task's success condition (VLM judge plus human spot checks).
-5. A verified run triggers an ETH payout (testnet first) to their wallet. The trace goes into the same episode/export format that `episodes.py` already defines, so it feeds flow A.
+1. A contributor installs the app from Xcode on their own iPhone. It is not published to TestFlight or the App Store.
+2. The app shows a task ("Change the translation language in Apple Translate").
+3. They record the screen with iOS screen recording while doing the task, then pick the recording in the app.
+4. The app uploads it over Wi-Fi to the gateway on our Mac. We review it on `/review/submissions`, and the decision shows up in the app. iOS does **not** expose touches made in other apps, so a submission is a demonstration video, not an action trace.
+5. Payouts (ETH or otherwise) and the ReplayKit broadcast extension are deferred.
+
+Full spec: [IPHONE_APP_PLAN.md](IPHONE_APP_PLAN.md).
 
 ## Contracts (what lets everyone work in parallel)
 
@@ -56,7 +58,7 @@ A rig counts as online if it polled within the last 40 s. One API key holds a ri
 | `sim` | Bundled screenshots | None (fake) | anyone, for testing |
 | `mirroring` | `PhoneCapture.swift` | `PhoneAction.swift` (Mac input events) | done; needs a live test |
 | `stylus` | `PhoneCapture.swift` or camera (`--screen camera`) | Printer harness: `stylus.dispatch(action, frame=metadata)` | hardware team |
-| `none` | camera | View-only (streams frames for the VLA; actions refused) | — |
+| `none` | camera | View-only (streams frames for the VLM; actions refused) | — |
 
 ## Work split
 
@@ -68,17 +70,17 @@ The workstreams are independent once the contracts above are fixed.
 | 2 | **Rig agent** | `rig_agent.py`: connects the harness + capture to the gateway | contracts only |
 | 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements `stylus.py` with `dispatch(action, frame=None) -> receipt` (`frame` is the screen metadata the action refers to). | action contract |
 | 4 | **Perception** (optional quality boost) | `phone_find(element)` grounding and a fast "did the tap land?" check, behind a `GROUNDING_PROVIDER` adapter (Gemini first, for the MLH track) | gateway tool shape |
-| 5 | **TestFlight app** | SwiftUI app + Broadcast Upload Extension, task list, wallet address entry | submission API (#6) |
-| 6 | **Tasks + payouts backend** | Task catalog, submission upload, verification, ETH payout (viem, Base Sepolia) | none |
+| 5 | **iPhone task app** | SwiftUI app in `ios/`: tasks, screen-recording import, upload, review status | submission API (#6) |
+| 6 | **Tasks + submissions** | Task catalog, idempotent upload, review queue on the gateway (payouts deferred) | none |
 | 7 | **Web console + voice** | Non-MCP browser UI on the gateway; voice reuses `speech.py` | gateway |
 
 ### Owners
 
 | Owner | Streams |
 | --- | --- |
-| **Nikhil** | #5 TestFlight app, #6 tasks + ETH payouts |
+| **Nikhil** | #5 iPhone task app, #6 tasks + submission review |
 | **Vikram + Vela** | #3 stylus robot and calibration (the hardware rig) |
-| **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLA traces and training |
+| **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLM traces and training |
 
 The hardware team says when the rig is ready. Then we run rigorous live tests: `--backend stylus` through the gateway with real taps, latency and accuracy measurements.
 
@@ -103,7 +105,7 @@ Every external service sits behind one interface, and env picks the vendor: `<CA
 | Grounding / vision | `none` | `gemini` (MLH), `bitdeer` |
 | Voice | `none` | `cartesia` |
 | Usage / trace store | JSON files | `convex`, `tigerdata` |
-| VLA (`phone_do`) | `none` | `http` = our custom VLA endpoint (contract in `gateway/src/vla.ts`) |
+| VLM (`phone_do`) | `none` | `http` = our custom VLM endpoint (contract in `gateway/src/vlm.ts`) |
 | Public URL | local | `cloudflared` tunnel from the rig Mac (optional domain) |
 
 Sponsor fit and priorities are in [SPONSORS.md](SPONSORS.md).

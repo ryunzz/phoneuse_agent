@@ -14,7 +14,7 @@ export const DEFAULT_PRICING: Readonly<Record<string, number>> = {
   phone_task_done: 0,
   ask_user: 0,
   phone_do: 50,
-  vla_step: 150,
+  vlm_step: 150,
   rigs_list: 0,
   usage_get: 0,
 };

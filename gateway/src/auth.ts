@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
-export type SecretKind = 'pu' | 'rig';
+export type SecretKind = 'pu' | 'rig' | 'ct';
 
 /** Secrets are shown once at creation; only their SHA-256 is stored. */
 export function generateSecret(kind: SecretKind): string {

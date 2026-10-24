@@ -15,6 +15,15 @@ RIG_TOKEN=rig_... uv run rig_agent.py --backend sim
 
 Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
 
+## iPhone task app (contributors)
+
+The same process serves the [Phone Tasks app](../ios/README.md): `GET /c/v1/tasks` (catalog in `tasks.json`) and idempotent video submissions under `/c/v1/submissions`, with contributor keys (`ct_…`) that cannot use MCP or rig routes. Review on the Mac at `http://127.0.0.1:8787/review/submissions`; that page and `/admin/v1/*` only answer on loopback.
+
+```sh
+bun run phone                                  # LAN + USB, announced over Bonjour, phones sign up
+bun run admin create-contributor "Your name"   # fallback pairing string for the app
+```
+
 ## Connect Claude
 
 ```sh
@@ -31,11 +40,11 @@ Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scr
 
 **Human in the loop:** `ask_user` (for example, "enter the 6-digit code") shows the question on the agent's live page. The person answers there, or with `POST /v1/asks/<id>`, and the agent's call returns the answer. Answers are never written to traces.
 
-**VLA:** `phone_do(instruction)` runs our model in a loop of look → act → look, through the same guarded, recorded path. Set `VLA_PROVIDER=http`, `VLA_URL` and (optionally) `VLA_API_KEY`. The request/response contract is documented at the top of `src/vla.ts`.
+**VLM:** `phone_do(instruction)` runs our model in a loop of look → act → look, through the same guarded, recorded path. Set `VLM_PROVIDER=http`, `VLM_URL` and (optionally) `VLM_API_KEY`. The request/response contract is documented at the top of `src/vlm.ts`.
 
 **Usage:** `/dashboard` shows tokens in (from the agent), tokens out (to the agent, including images), tokens billed, calls and rig time.
 
-## Training traces (VLA)
+## Training traces (VLM)
 
 Every MCP session is recorded as an episode in the same format the local demo recorder (`episodes.py`) writes, under `DATA_DIR/demonstrations/` (set `TRACE_DIR`, or `TRACES=off` to disable).
 
@@ -63,10 +72,12 @@ No server? Run the gateway on the rig Mac and expose it with `cloudflared tunnel
 | --- | --- | --- |
 | `HOST` / `PORT` | `127.0.0.1` / `8787` | Listen address |
 | `PUBLIC_URL` | `http://HOST:PORT` | Base for live-feed links |
-| `DATA_DIR` | `./data` | API keys/rigs (hashed), usage ledger, traces |
+| `DATA_DIR` | `./data` | API keys/rigs/contributors (hashed), usage ledger, traces, `submissions/` |
+| `TASKS_FILE` | `./tasks.json` | Contributor task catalog |
+| `ENROLLMENT` | closed | `open` lets phones get a contributor key from `POST /c/v1/enroll` |
 | `TRACE_DIR` / `TRACES` | `DATA_DIR/demonstrations` / on | Episode recording (`TRACES=off` disables) |
 | `REVIEW_TOKEN` | unset | Enables `/review` and `/v1/episodes` (24+ chars) |
-| `VLA_PROVIDER` / `VLA_URL` / `VLA_API_KEY` | `none` | Custom VLA model behind `phone_do` |
+| `VLM_PROVIDER` / `VLM_URL` / `VLM_API_KEY` | `none` | Custom VLM behind `phone_do` |
 
 ## Test
 

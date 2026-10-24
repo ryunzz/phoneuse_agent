@@ -13,7 +13,7 @@ Source: [cal-hacks-13-0.devpost.com](https://cal-hacks-13-0.devpost.com/), pulle
 
 ## Integration principle
 
-Every sponsor integration is an **adapter behind an interface**, chosen by env (`<CAPABILITY>_PROVIDER=<vendor>` plus that vendor's key). Swapping vendors to chase a track means adding one file and changing env, not touching the core. Capabilities: Payments, VLA (`VLA_PROVIDER`), Grounding/Vision model, Voice, Usage/Trace store, Agent wrapper.
+Every sponsor integration is an **adapter behind an interface**, chosen by env (`<CAPABILITY>_PROVIDER=<vendor>` plus that vendor's key). Swapping vendors to chase a track means adding one file and changing env, not touching the core. Capabilities: Payments, VLM (`VLM_PROVIDER`), Grounding/Vision model, Voice, Usage/Trace store, Agent wrapper.
 
 ## Track map
 
@@ -23,7 +23,7 @@ Every sponsor integration is an **adapter behind an interface**, chosen by env (
 
 | Track | Prize | Fit | Our angle |
 | --- | --- | --- | --- |
-| First / Second / Third Overall | $3,600 + laptops / Switch 2 / Google eyewear | ✅ | Cloud phones for any AI agent: hosted MCP, token billing, live view, VLA data flywheel |
+| First / Second / Third Overall | $3,600 + laptops / Switch 2 / Google eyewear | ✅ | Cloud phones for any AI agent: hosted MCP, token billing, live view, VLM data flywheel |
 | Most Technically Complex | NuPhy Air60 HE | ✅ | Gateway, rig long-poll, metering, trace pipeline, review UI, Swift capture/action, (stylus) |
 | Most Creative | Instax | ✅ | "Computer use for any screen": a robot finger on a real phone |
 | Best Hardware Hack | Bambu Lab 3D printer each | ✅ (once the stylus is verified) | Printer-turned-stylus rig. Only claim what we demo physically. |
