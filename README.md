@@ -1,6 +1,6 @@
 # Phone Use
 
-**Cloud phones for AI agents.** Real phones sit on our rigs. Any agent drives them through a hosted MCP server with an API key, usage is billed in tokens, and every session becomes training data for our phone VLA.
+**Cloud phones for AI agents.** Real phones sit on our rigs. Any agent drives them through a hosted MCP server with an API key, usage is billed in tokens, and every session becomes training data for our phone VLM.
 
 > **Current limitation:** phone control goes through **iPhone Mirroring on the Mac, so it's operator-mediated**. The 3D-printer stylus path is not implemented or verified on hardware yet. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
 
@@ -12,10 +12,10 @@ Agent (Claude, …) ──MCP──► gateway/ (Bun) ◄──long poll── r
 
 | Piece | What it is |
 | --- | --- |
-| [`gateway/`](gateway/README.md) | Hosted MCP (`/mcp`): API keys, token metering (`/dashboard`), rig leases, live feed (`/live`), VLA trace recording and human review (`/review`) |
+| [`gateway/`](gateway/README.md) | Hosted MCP (`/mcp`): API keys, token metering (`/dashboard`), rig leases, live feed (`/live`), VLM trace recording and human review (`/review`) |
 | `rig_agent.py` | Runs on the rig's Mac. Connects outbound to the gateway, streams the screen, and executes actions through a backend |
 | `PhoneCapture.swift`, `PhoneAction.swift`, `phone_stream.py` | Capture of the iPhone Mirroring window, and input into it |
-| `episodes.py` | The shared episode format, plus `label` and `export` for VLA training data |
+| `episodes.py` | The shared episode format, plus `label` and `export` for VLM training data |
 | `phone_agent.py` | Our own Claude agent: a Claude Agent SDK client of the gateway MCP |
 | `harness.py` + `console.html` | Local rig console: bounded printer motion for the stylus team (status / home / jog via OctoPrint or `PRINTER_BRIDGE`), voice prompts, the manual demonstration recorder, and the Claude agent controller |
 

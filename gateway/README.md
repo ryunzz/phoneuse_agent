@@ -40,7 +40,7 @@ Tools: `rigs_list`, `phone_connect`, `phone_screenshot`, `phone_tap`, `phone_scr
 
 **Human in the loop:** `ask_user` (for example, "enter the 6-digit code") shows the question on the agent's live page. The person answers there, or with `POST /v1/asks/<id>`, and the agent's call returns the answer. Answers are never written to traces.
 
-**VLA:** `phone_do(instruction)` runs our model in a loop of look → act → look, through the same guarded, recorded path. Set `VLA_PROVIDER=http`, `VLA_URL` and (optionally) `VLA_API_KEY`. The request/response contract is documented at the top of `src/vla.ts`.
+**VLM:** `phone_do(instruction)` runs our model in a loop of look → act → look, through the same guarded, recorded path. Set `VLM_PROVIDER=http`, `VLM_URL` and (optionally) `VLM_API_KEY`. The request/response contract is documented at the top of `src/vlm.ts`.
 
 **Usage:** `/dashboard` shows tokens in (from the agent), tokens out (to the agent, including images), tokens billed, calls and rig time.
 
@@ -77,7 +77,7 @@ No server? Run the gateway on the rig Mac and expose it with `cloudflared tunnel
 | `ENROLLMENT` | closed | `open` lets phones get a contributor key from `POST /c/v1/enroll` |
 | `TRACE_DIR` / `TRACES` | `DATA_DIR/demonstrations` / on | Episode recording (`TRACES=off` disables) |
 | `REVIEW_TOKEN` | unset | Enables `/review` and `/v1/episodes` (24+ chars) |
-| `VLA_PROVIDER` / `VLA_URL` / `VLA_API_KEY` | `none` | Custom VLA model behind `phone_do` |
+| `VLM_PROVIDER` / `VLM_URL` / `VLM_API_KEY` | `none` | Custom VLM behind `phone_do` |
 
 ## Test
 

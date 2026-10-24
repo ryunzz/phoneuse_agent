@@ -58,7 +58,7 @@ A rig counts as online if it polled within the last 40 s. One API key holds a ri
 | `sim` | Bundled screenshots | None (fake) | anyone, for testing |
 | `mirroring` | `PhoneCapture.swift` | `PhoneAction.swift` (Mac input events) | done; needs a live test |
 | `stylus` | `PhoneCapture.swift` or camera (`--screen camera`) | Printer harness: `stylus.dispatch(action, frame=metadata)` | hardware team |
-| `none` | camera | View-only (streams frames for the VLA; actions refused) | — |
+| `none` | camera | View-only (streams frames for the VLM; actions refused) | — |
 
 ## Work split
 
@@ -105,7 +105,7 @@ Every external service sits behind one interface, and env picks the vendor: `<CA
 | Grounding / vision | `none` | `gemini` (MLH), `bitdeer` |
 | Voice | `none` | `cartesia` |
 | Usage / trace store | JSON files | `convex`, `tigerdata` |
-| VLA (`phone_do`) | `none` | `http` = our custom VLA endpoint (contract in `gateway/src/vlm.ts`) |
+| VLM (`phone_do`) | `none` | `http` = our custom VLM endpoint (contract in `gateway/src/vlm.ts`) |
 | Public URL | local | `cloudflared` tunnel from the rig Mac (optional domain) |
 
 Sponsor fit and priorities are in [SPONSORS.md](SPONSORS.md).
