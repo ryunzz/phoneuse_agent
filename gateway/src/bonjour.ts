@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { lanAddress } from './config.js';
+import { lanAddresses } from './config.js';
 
 export const SERVICE_TYPE = '_phonetasks._tcp';
 
 /**
- * Announces the gateway on the LAN with macOS's dns-sd so the iPhone app finds it without a
- * typed address. The TXT record carries the current Wi-Fi IP; it is re-announced when it changes.
+ * Announces the gateway with macOS's dns-sd so the iPhone app finds it without a typed address,
+ * over Wi-Fi or over the USB cable when the phone's Personal Hotspot is on. The TXT record lists
+ * every address the Mac has (the app tries each); it is re-announced when they change.
  */
 export function advertise(port: number): () => void {
   if (process.platform !== 'darwin') return () => {};
@@ -13,15 +14,15 @@ export function advertise(port: number): () => void {
   let announced: string | null = null;
 
   const announce = () => {
-    const ip = lanAddress();
-    if (ip === announced) return;
+    const ips = lanAddresses().join(',');
+    if (ips === announced) return;
     child?.kill();
     child = null;
-    announced = ip;
-    if (!ip) return;
-    child = spawn('dns-sd', ['-R', 'Phone Use gateway', SERVICE_TYPE, 'local.', String(port), `ip=${ip}`, `port=${port}`, 'v=1'], { stdio: 'ignore' });
+    announced = ips;
+    if (!ips) return;
+    child = spawn('dns-sd', ['-R', 'Phone Use gateway', SERVICE_TYPE, 'local.', String(port), `ips=${ips}`, `port=${port}`, 'v=2'], { stdio: 'ignore' });
     child.on('error', (error) => console.warn(`[bonjour] could not announce: ${error.message}`));
-    console.info(`[bonjour] announcing ${SERVICE_TYPE} at http://${ip}:${port}`);
+    console.info(`[bonjour] announcing ${SERVICE_TYPE} on ${ips} port ${port}`);
   };
 
   announce();

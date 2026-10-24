@@ -70,7 +70,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 /** The Mac's Wi-Fi address, which the iPhone app uses to reach this gateway. It can change on reconnect. */
 export function lanAddress(): string | null {
+  return lanAddresses()[0] ?? null;
+}
+
+/** Every IPv4 address the phone might reach: Wi-Fi first, then others such as iPhone USB tethering. */
+export function lanAddresses(): string[] {
   const all = networkInterfaces();
   const ordered = [...(all.en0 ?? []), ...Object.values(all).flat()];
-  return ordered.find((entry) => entry && entry.family === 'IPv4' && !entry.internal)?.address ?? null;
+  const found = ordered.filter((entry) => entry && entry.family === 'IPv4' && !entry.internal).map((entry) => entry!.address);
+  return [...new Set(found)];
 }
