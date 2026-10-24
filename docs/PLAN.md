@@ -1,6 +1,6 @@
 # Phone Use: product flow, contracts, and work split
 
-We are building a **VLA (vision-language-action) model for phones** and selling access to **cloud phones**: real phones on our hardware rigs that any agent can drive over MCP. Usage is billed in tokens. Every run also produces training traces for the VLA.
+We are building a **VLM (vision-language model) for phones** and selling access to **cloud phones**: real phones on our hardware rigs that any agent can drive over MCP. Usage is billed in tokens. Every run also produces training traces for the VLM.
 
 ## Product flows
 
@@ -10,7 +10,7 @@ We are building a **VLA (vision-language-action) model for phones** and selling 
 2. They add our **remote MCP server** to Claude (Claude Code, Claude Desktop, or the MCP directory) by passing the URL `https://<gateway>/mcp` and the header `Authorization: Bearer pu_…`. There's nothing to install locally.
 3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone, iPhone Mirroring and the stylus robot (the Prusa printer harness).
 4. Tools: `rigs_list`, `phone_connect(task)`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_task_done(outcome)`, `phone_disconnect`, `usage_get`.
-   Every session is recorded as a VLA training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
+   Every session is recorded as a VLM training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
 5. `phone_live_feed` returns a short-lived URL. Opening it shows a live MJPEG view of the phone in any browser.
 6. Every tool call is metered in **tokens** per API key: a base price per tool plus the estimated image tokens of the screenshots we return. Failed calls are free. `/dashboard` shows tokens billed, image tokens, calls, rig time, and a per-minute chart. Each tool result also says what it cost.
 7. Users who aren't on MCP get the same rig through a web console (later: voice mode via the existing whisper.cpp stack).
@@ -79,7 +79,7 @@ The workstreams are independent once the contracts above are fixed.
 | --- | --- |
 | **Nikhil** | #5 iPhone task app, #6 tasks + submission review |
 | **Vikram + Vela** | #3 stylus robot and calibration (the hardware rig) |
-| **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLA traces and training |
+| **Ryan** (with Claude) | everything else: #1 gateway + MCP, #2 rig agent, #4 perception, #7 web console + voice, VLM traces and training |
 
 The hardware team says when the rig is ready. Then we run rigorous live tests: `--backend stylus` through the gateway with real taps, latency and accuracy measurements.
 

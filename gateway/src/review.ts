@@ -336,7 +336,7 @@ const PAGE_HTML = `
 </header>
 <div class="project"><span>Project: <b>Episodes.prproj</b></span><span id="msg">Enter the review token.</span><button class="linkbtn" id="signout" type="button" hidden>change token</button></div>
 <section class="gate" id="gate">
-  <div><h1>Review episodes</h1><p>label agent steps for the VLA</p>
+  <div><h1>Review episodes</h1><p>label agent steps for the VLM</p>
   <form id="tokenform"><label class="sr" for="token" hidden>Review token</label><input id="token" type="password" autocomplete="off" placeholder="REVIEW_TOKEN" aria-label="Review token"><button type="submit">Load</button></form></div>
 </section>
 <main id="workspace" hidden>
