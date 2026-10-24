@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createWriteStream, rmSync } from 'node:fs';
+import { createReadStream, createWriteStream, rmSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { commandResultSchema } from './actions.js';
@@ -12,7 +12,8 @@ import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { RigHub } from './rigs.js';
 import type { Store } from './store.js';
-import { createSubmissionSchema, loadTasks, SubmissionError, SubmissionStore, VIDEO_TYPES } from './submissions.js';
+import { REVIEW_CSP, reviewPage } from './review.js';
+import { createSubmissionSchema, loadTasks, reviewSchema, SubmissionError, SubmissionStore, VIDEO_TYPES } from './submissions.js';
 import { UsageLedger } from './usage.js';
 
 export interface Gateway {
@@ -98,6 +99,55 @@ function streamToFile(req: IncomingMessage, file: string, limit: number): Promis
       out.end(() => resolve({ bytes, sha256: hash.digest('hex') }));
     });
   });
+}
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Review routes answer only on the Mac itself, even when the gateway listens on the LAN for
+ * the iPhone app. The Host check stops DNS rebinding; the Origin and JSON checks stop other
+ * sites in the reviewer's browser from posting decisions.
+ */
+function requireLocalAdmin(req: IncomingMessage, write: boolean): void {
+  const host = req.headers.host ?? '';
+  if (!LOOPBACK.has(req.socket.remoteAddress ?? '') || !LOCAL_HOSTNAMES.has(host.replace(/:\d+$/, ''))) {
+    throw new HttpError(403, 'Review is only available on the Mac running the gateway (http://127.0.0.1)');
+  }
+  if (!write) return;
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') {
+    let originHost = '';
+    try {
+      originHost = new URL(origin).host;
+    } catch {}
+    if (originHost !== host) throw new HttpError(403, 'Cross-site request refused');
+  } else if (origin === 'null') throw new HttpError(403, 'Cross-site request refused');
+  if (String(req.headers['content-type'] ?? '').split(';')[0].trim() !== 'application/json') {
+    throw new HttpError(415, 'Use application/json');
+  }
+}
+
+/** Serves a stored video with single-range support so browsers can seek. */
+function sendVideo(req: IncomingMessage, res: ServerResponse, file: string, contentType: string): void {
+  const size = statSync(file).size;
+  const headers = { 'Content-Type': contentType, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : Math.max(size - Number(range[2]), 0);
+    let end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` }).end();
+      return;
+    }
+    start = Math.max(start, 0);
+    end = Math.max(end, start);
+    res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) });
+    createReadStream(file, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { ...headers, 'Content-Length': String(size) });
+  createReadStream(file).pipe(res);
 }
 
 export function createGateway(config: Config, store: Store): Gateway {
@@ -223,6 +273,37 @@ export function createGateway(config: Config, store: Store): Gateway {
       const body = (await readJson(req, limits.maxJsonBytes)) as { sha256?: unknown };
       if (typeof body?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(body.sha256)) throw new HttpError(400, 'sha256 is required');
       return send(res, 200, submissions.complete(subMatch[1], contributorId, body.sha256));
+    }
+
+    if (pathname === '/review' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      return send(res, 200, reviewPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': REVIEW_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    }
+    if (pathname === '/admin/v1/submissions' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      const contributors = new Map(store.listContributors().map((person) => [person.id, person.name]));
+      const queue = submissions.queue();
+      return send(res, 200, {
+        stats: queue.stats,
+        tasks: submissions.listTasks(),
+        submissions: queue.submissions.map((record) => ({ ...record, contributorName: contributors.get(record.contributorId) ?? record.contributorId })),
+      });
+    }
+    const adminMatch = /^\/admin\/v1\/submissions\/(sub_[0-9a-f]{16})\/(media|review)$/.exec(pathname);
+    if (adminMatch && adminMatch[2] === 'media' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      const record = submissions.get(adminMatch[1]);
+      return sendVideo(req, res, submissions.mediaPath(record), record.media!.contentType);
+    }
+    if (adminMatch && adminMatch[2] === 'review' && req.method === 'POST') {
+      requireLocalAdmin(req, true);
+      const parsed = reviewSchema.safeParse(await readJson(req, limits.maxJsonBytes));
+      if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid review');
+      return send(res, 200, submissions.review(adminMatch[1], parsed.data));
     }
 
     const liveMatch = /^\/live\/([\w-]{20,64})(\/stream|\/frame\.jpg)?$/.exec(pathname);
