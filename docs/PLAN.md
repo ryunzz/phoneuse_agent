@@ -69,7 +69,7 @@ The workstreams are independent once the contracts above are fixed.
 | 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements the `stylus` backend. | action contract |
 | 4 | **Perception** (optional quality boost) | Grounding model (Baseten) and fast verify (Groq) behind a `phone_find(element)` tool | gateway tool shape |
 | 5 | **iPhone task app** | SwiftUI app in `ios/`: tasks, screen-recording import, upload, review status | submission API (#6) |
-| 6 | **Tasks + payouts backend** | Task catalog, submission upload, verification, ETH payout (viem, Base Sepolia) | none |
+| 6 | **Tasks + submissions** | Task catalog, idempotent upload, review queue on the gateway (payouts deferred) | none |
 | 7 | **Web console + voice** | Non-MCP browser UI on the gateway; voice reuses `speech.py` | gateway |
 
 ### Owners
