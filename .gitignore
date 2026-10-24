@@ -9,3 +9,4 @@ demonstrations/
 
 .playwright-mcp/
 .venv/
+.camera-stream/
