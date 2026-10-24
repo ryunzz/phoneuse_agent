@@ -66,7 +66,7 @@ The workstreams are independent once the contracts above are fixed.
 | 1 | **Gateway + hosted MCP** | `gateway/`: API key, token metering + dashboard, rig routing, MCP tools, live feed, deploy | contracts only |
 | 2 | **Rig agent** | `rig_agent.py`: connects the harness + capture to the gateway | contracts only |
 | 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements the `stylus` backend. | action contract |
-| 4 | **Perception** (optional quality boost) | Grounding model (Baseten) and fast verify (Groq) behind a `phone_find(element)` tool | gateway tool shape |
+| 4 | **Perception** (optional quality boost) | `phone_find(element)` grounding and a fast "did the tap land?" check, behind a `GROUNDING_PROVIDER` adapter (Gemini first, for the MLH track) | gateway tool shape |
 | 5 | **TestFlight app** | SwiftUI app + Broadcast Upload Extension, task list, wallet address entry | submission API (#6) |
 | 6 | **Tasks + payouts backend** | Task catalog, submission upload, verification, ETH payout (viem, Base Sepolia) | none |
 | 7 | **Web console + voice** | Non-MCP browser UI on the gateway; voice reuses `speech.py` | gateway |
@@ -91,6 +91,20 @@ The hardware team says when the rig is ready. Then we run rigorous live tests: `
 | `phone_connect`, `phone_disconnect`, `rigs_list`, `usage_get` | 0 |
 
 Billed tokens = base + estimated image tokens (width × height / 750 after downscaling to 1568 px). A 636×1402 Mirroring frame is about 1,189 image tokens.
+
+## Provider adapters
+
+Every external service sits behind one interface, and env picks the vendor: `<CAPABILITY>_PROVIDER=<vendor>` plus that vendor's key. Vendor SDKs are imported only inside their adapter file, so switching providers (or chasing another sponsor track) means one new file and an env change.
+
+| Capability | Default | Sponsor adapters planned |
+| --- | --- | --- |
+| Payments | `none` | `x402` (Coinbase) |
+| Grounding / vision | `none` | `gemini` (MLH), `bitdeer` |
+| Voice | `none` | `cartesia` |
+| Usage / trace store | JSON files | `convex`, `tigerdata` |
+| Hosting | local | Vultr VM + GoDaddy Registry domain |
+
+Sponsor fit and priorities are in [SPONSORS.md](SPONSORS.md).
 
 ## Tooling
 

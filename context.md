@@ -1,68 +1,51 @@
-# Phone Use — Architecture & Prize Plan (Cal Hacks)
+# Phone Use — Architecture & Prize Plan (Cal Hacks 13.0)
 
-> Claude controls a real phone with a physical stylus robot. It sees the screen through mirroring (CP1) or a camera (CP2). It works on any touchscreen: phone, iPad, Kindle, a TestFlight app. It ships as an MCP server on npm.
+> Cloud phones for AI agents. Real phones sit on our hardware rigs, and any agent drives them over a hosted MCP server with an API key. Usage is billed in tokens, and every session becomes training data for our phone VLA. The long-term rig is a physical stylus robot. CP1 sees the screen through mirroring, CP2 through a camera.
 
-⚠️ The prize page says Cal Hacks 12.0 - Oct 24-26, 2025. Confirm the sponsor list in Slack/Devpost before building around any one sponsor, and check whether Devpost caps how many sponsor tracks we can submit to.
+**Event:** Cal Hacks 13.0, Oct 23–25 2026, Palace of Fine Arts SF. **Submit by Oct 25, 9:00 AM PST (hard deadline).** The full sponsor and prize plan is in [docs/SPONSORS.md](docs/SPONSORS.md). There is no cap on sponsor tracks. Architecture, contracts and the work split are in [docs/PLAN.md](docs/PLAN.md).
+
+**Current status (be honest in demos):** phone control today goes through iPhone Mirroring, so it is **operator-mediated**. The stylus path is not yet implemented or verified on hardware. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
 
 ---
 
 ## 1. Checkpoints
 
-| | Perception | Actuation | Why |
+| | Perception | Actuation | Status |
 |---|---|---|---|
-| **CP1** | Phone → Mac screen mirroring, streamed to the harness | Serial commands → stylus robot | Easiest path. Gives a clean, pixel-perfect screen. |
-| **CP2** | Live camera pointed at the device | Same robot | Works on any device with a screen and no software link. Needs camera-to-screen calibration. |
+| **CP0** | iPhone Mirroring window (ScreenCaptureKit) | Mac input events into Mirroring (`PhoneAction.swift`) | Built; verify live with the real phone |
+| **CP1** | Mirroring | Stylus robot (printer harness `stylus.py`) | Waiting on hardware (Vikram + Vela) |
+| **CP2** | Camera pointed at the device | Stylus robot | Needs camera → screen calibration |
 
 ---
 
 ## 2. System Architecture
 
 ```
-┌──────────┐   tap/swipe    ┌───────────────────────┐
-│  Phone   │ ◄───────────── │ Stylus robot (serial) │  ← Hardware / Robotics
-└────┬─────┘                └───────────▲───────────┘
-     │                                  │ serial cmds
-     ├─ CP1: Mac screen mirror ─┐       │
-     └─ CP2: camera ────────────┤       │
-                                ▼       │
-                ┌──────────────────────────────────┐
-                │ LiveKit video track (frames)     │  ← LiveKit
-                └───────────────┬──────────────────┘
-                                ▼
-   ┌────────────────────────────────────────────────────────┐
-   │ PERCEPTION                                             │
-   │  • UI grounding: open VLM on Baseten → (x, y)          │  ← Baseten
-   │  • Camera-view understanding (CP2): Reka               │  ← Reka
-   │  • Fast verify loop ("did the tap land?"): Groq        │  ← Groq
-   └───────────────────────────┬────────────────────────────┘
-                               ▼
-   ┌────────────────────────────────────────────────────────┐
-   │ PLANNER: Claude via our MCP server (npm package)       │  ← Claude, MCP Automation
-   │  Tools: screenshot(), tap(x,y), swipe(), type(),       │
-   │         home(), ask_user(prompt)                       │
-   │  All LLM calls routed through Lava gateway             │  ← Lava
-   └───────────────────────────┬────────────────────────────┘
-                               ▼
-   ┌────────────────────────────────────────────────────────┐
-   │ MEMORY & TRACES                                        │
-   │  • Letta: stateful memory (per-app UI, user prefs)     │  ← Letta
-   │  • Chroma: stored successful trajectories → retrieval  │  ← Chroma
-   └───────────────────────────┬────────────────────────────┘
-                               ▼
-   ┌────────────────────────────────────────────────────────┐
-   │ HUMAN-IN-THE-LOOP                                      │
-   │  ask_user(): voice call / TTS asks for the 2FA code    │  ← Vapi / Fish Audio
-   └────────────────────────────────────────────────────────┘
+ Any agent (Claude Code / Desktop / Fetch.ai agent / Apify actor)
+        │  MCP over HTTPS, Authorization: Bearer pu_…     [PAYMENTS: x402 → Coinbase]
+        ▼
+ ┌──────────────────────────── Gateway (gateway/, Bun) ─────────────────────────┐
+ │ API keys · token metering (/dashboard) · rig leases · live feed (/live)      │
+ │ VLA trace recorder (episodes.py format) · human review (/review)             │
+ │ Provider slots (env-selected adapters):                                      │
+ │   PAYMENTS (x402) · GROUNDING (Gemini / Bitdeer) · VOICE (Cartesia)          │
+ │   STORE (JSON files → Convex / Tiger Data) · HOSTING (Vultr + GoDaddy)       │
+ └───────────────▲──────────────────────────────────────────────────────────────┘
+                 │ outbound long-poll (rig never exposes a port)
+ ┌───────────────┴──────── Rig agent (rig_agent.py, uv) ────────────────────────┐
+ │ screen: PhoneCapture.swift (Mirroring) | camera                              │
+ │ actions: sim | mirroring (PhoneAction.swift) | stylus (printer harness)      │
+ └──────────────────────────────────────────────────────────────────────────────┘
+
+ TestFlight app (Nikhil) ─► tasks + payouts backend ─► ETH payout ─► episodes for the VLA
 ```
 
 ### Agent loop
-1. `screenshot()` grabs the latest frame from the mirror or camera.
-2. Claude plans the next action toward the goal, pulling similar past traces from Chroma and app memory from Letta.
-3. The grounding model maps the intended element to pixel coordinates, then to robot coordinates (in CP2 this goes through the calibration homography).
-4. The robot executes the action over serial.
-5. Groq quickly checks that the screen changed as expected. If not, retry or re-plan.
-6. If the agent hits 2FA or a choice only the user can make, `ask_user()` reaches them by voice or notification and waits for the reply.
-7. Each run's trace is logged (frames, actions, outcome) and stored in Chroma.
+1. `phone_connect(task)` reserves a rig and starts a recorded episode.
+2. `phone_screenshot` shows the agent the screen. Optionally `phone_find(element)` grounds the target through the grounding provider.
+3. `phone_tap` / `phone_scroll` / `phone_type` / `phone_home` (with a `reason`) dispatch to the rig and return the settled screen. Each call is billed in tokens.
+4. If the agent hits 2FA or a choice only the user can make, `ask_user` asks them (voice provider, planned).
+5. `phone_task_done(outcome)` closes the episode. Humans label the steps at `/review`, then `episodes.py export` produces VLA training data.
 
 ---
 
@@ -70,61 +53,36 @@
 
 | Component | Notes | Owner |
 |---|---|---|
-| Robot + serial driver | Stylus mount (tape it on), tap/swipe/home commands, coordinate mapping | Nikhil + team |
-| CP1 mirroring stream | Mac screen mirroring → frames into harness | Nikhil + team |
-| MCP server → npm | Tool definitions above; publish early, demo the install | Nikhil + team |
-| Lava / Groq / Claude wiring | Swap the OpenRouter key for Lava | Nikhil + team |
-| CP2 camera + LiveKit | Camera → LiveKit track; screen-corner detection → homography calibration | Ryan + Bella |
-| Grounding (Baseten / Reka) | Open UI-grounding VLM on Baseten; Reka for camera view | Ryan + Bella |
-| 2FA voice step | Vapi call or Fish Audio TTS | Floater |
-| Letta + Chroma traces | Memory + trajectory retrieval | Floater |
-| Fetch.ai wrapper | Agentverse registration + Chat Protocol | Floater (if time) |
+| Stylus robot + calibration | Printer harness `move_to` / `press` / `swipe`, 4-corner phone→printer calibration, `stylus.py dispatch(action)` | Vikram + Vela |
+| TestFlight app | SwiftUI + ReplayKit broadcast, task list, wallet | Nikhil |
+| Tasks + ETH payouts backend | Task catalog, submission verification, payouts | Nikhil |
+| Gateway + hosted MCP | Keys, metering, dashboard, leases, live feed, traces, review | Ryan (+ Claude) |
+| Rig agent | `sim` / `mirroring` / `stylus` backends | Ryan (+ Claude) |
+| Sponsor adapters | x402, Vultr deploy, Gemini grounding, Fetch.ai wrapper, Cartesia voice… | Ryan (+ Claude) |
 
-**Git hygiene:** commit by feature via PRs (CodeRabbit reviews them), not one massive commit.
+**Tooling:** Bun for TypeScript, uv for Python. **Git:** atomic commits, pushed to `main`.
 
 ---
 
 ## 4. Demo Script
 
-1. **Install:** `npx <our-mcp>` → connect it to Claude.
-2. **Real client workflow:** for an F&B client's double-chargeback dispute with his distributor, the agent uploads the files through his portal on the phone.
-3. **2FA moment:** the agent pauses, calls or notifies the user ("what's the code?"), types it in, and finishes the task.
-4. **Generality:** the same agent on a different device (iPad / Kindle / TestFlight app) using CP2 camera mode.
-5. **Story:** "Instead of grandma asking her grandson in person, she just asks the agent." We collect traces and every run makes the next one better.
-6. *(Optional)* A gov or benefits portal run for the Promise Public Impact angle.
+1. **Connect:** add our MCP URL + API key to Claude. Show `/dashboard` (tokens) and `/live` (the phone).
+2. **Real task on a real phone:** one mobile-only task chosen to hit demo tracks. Examples: a finance dispute (Hyphenate), a purchase (Visa), messaging family (Meta). The agent pays per call via x402.
+3. **Human-in-the-loop moment:** the agent pauses for a 2FA code (`ask_user`, voice if Cartesia lands).
+4. **Data flywheel:** open `/review`, label the run, export VLA training rows. Mention the TestFlight app paying humans in ETH for more demonstrations.
+5. **Story:** "Instead of grandma asking her grandson, she asks the agent." (Anthropic Public Benefit, People-First Social Impact.)
+6. **Hardware:** the stylus rig doing the same task physically, **only if it is verified on hardware by then**.
 
 ---
 
 ## 5. Prize Map
 
-### Tier 1: Core
-- **Best Use of Claude:** Claude Code built it and Claude runs it.
-- **Best MCP Automation** (Interaction Company): the npm MCP that controls physical devices.
-- **Best Hardware Hack** + **Best Robotics Hack** (BitRobot): the stylus robot.
-- **Most Creative / Social Impact / Most Wacky** (Wordware).
-- **Build an Iconic YC Company:** "computer use for any screen, no API needed" + trace-data moat.
+See [docs/SPONSORS.md](docs/SPONSORS.md) for every 2026 track with fit, angle and owner. Summary:
 
-### Tier 2: One integration each
-- **LiveKit** (complex / creative / startup): video transport (+ voice).
-- **Baseten:** open grounding model powering a core feature.
-- **Reka:** CP2 camera-view understanding.
-- **Groq:** fast verify loop.
-- **Lava Gateway:** all model routing.
-- **Vapi / Fish Audio:** 2FA voice step (Fish pays per person).
-- **Letta:** stateful memory.
-- **Chroma:** trace retrieval.
-- **CodeRabbit:** PR reviews.
+- **Enter now:** Overall, Most Technically Complex, Most Creative, People-First Social Impact, Hacker's Choice, Anthropic Public Benefit, Coinbase x402 (×2), Fetch.ai, Atlassian Best Agent, Microsoft Real World, MLH Vultr / GoDaddy / Gemini, Commit Fellowship.
+- **Via the demo task:** Hyphenate (finance), Visa (shopping), Meta (people closer), Capital One Nessie.
+- **If time allows (real integration):** Cartesia, Convex, Tiger Data, Apify, Factory, Spacetime, Bitdeer.
+- **Hardware Hack:** only with a verified stylus demo.
+- **Ask at booths:** Mana, Moss, CRS.
 
-### Tier 3: Via the demo
-- **Conversion – Best Workflow App:** the chargeback workflow.
-- **Creao – Productivity Tool / Smartest Agent:** check whether it requires their platform.
-- **Promise – Public Impact:** gov-app demo.
-- **Composio Toolrouter:** use an API when one exists, fall back to the physical phone when not.
-- **Fetch.ai:** Agentverse + Chat Protocol wrapper.
-- **Postman:** API collection for the harness endpoints.
-- **Visa:** only if `#spons-visa` covers chargebacks/disputes.
-
-### Skip
-AppLovin, Sui, XRP, Ethereum, Regeneron, Rox, Crater, Janitor AI, Bright Data, Elastic. Snap Spectacles only if we can get a pair to use as the camera.
-
-**Rule:** every sponsor must power something visible in the demo. Target Tier 1 + ~5 of Tier 2.
+**Rule:** every sponsor must power something visible in the demo or write-up, and each sits behind a swappable adapter.
