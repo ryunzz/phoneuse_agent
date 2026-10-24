@@ -9,6 +9,8 @@ export interface Config {
   readonly dataDir: string;
   /** Contributor task catalog; defaults to gateway/tasks.json. */
   readonly tasksFile?: string;
+  /** Let phones on the LAN get their own contributor key from POST /c/v1/enroll (trusted Wi-Fi only). */
+  readonly openEnrollment?: boolean;
   /** Where gateway sessions are recorded as episodes (episodes.py format). Null disables recording. */
   readonly traceDir: string | null;
   /** Bearer token for the episode review page/API. Null disables review. */
@@ -59,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicUrl,
     dataDir,
     tasksFile: env.TASKS_FILE ? path.resolve(env.TASKS_FILE) : undefined,
+    openEnrollment: env.ENROLLMENT === 'open',
     traceDir: env.TRACES === 'off' ? null : path.resolve(env.TRACE_DIR ?? path.join(dataDir, 'demonstrations')),
     reviewToken,
     limits: DEFAULT_LIMITS,

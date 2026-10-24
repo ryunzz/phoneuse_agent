@@ -160,6 +160,7 @@ export function createGateway(config: Config, store: Store): Gateway {
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
   const submissions = new SubmissionStore(`${config.dataDir}/submissions`, loadTasks(config.tasksFile));
   const contributorLimiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const enrollLimiter = new RateLimiter(10, 60_000);
   const traces = config.traceDir ? new TraceRecorder(config.traceDir) : null;
 
   const requireKey = (req: IncomingMessage): string => {
@@ -259,6 +260,15 @@ export function createGateway(config: Config, store: Store): Gateway {
       return send(res, 200, { seq: frame.seq });
     }
 
+    if (pathname === '/c/v1/enroll' && req.method === 'POST') {
+      if (!config.openEnrollment) throw new HttpError(403, 'Enrollment is closed; pair with a pairing string from "bun run admin create-contributor"');
+      if (!enrollLimiter.allow(req.socket.remoteAddress ?? 'unknown')) throw new HttpError(429, 'Too many enrollments; wait a minute');
+      const body = (await readJson(req, limits.maxJsonBytes)) as { name?: unknown };
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      if (!name || name.length > 100) throw new HttpError(400, 'name must be 1-100 characters');
+      const { record, secret } = store.createContributor(name);
+      return send(res, 201, { contributorId: record.id, key: secret });
+    }
     if (pathname === '/c/v1/tasks' && req.method === 'GET') {
       requireContributor(req);
       return send(res, 200, { tasks: submissions.listTasks() });

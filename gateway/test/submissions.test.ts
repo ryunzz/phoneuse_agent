@@ -191,3 +191,29 @@ test('submissions survive a gateway restart', async () => {
   const reborn = createGateway(config, store);
   assert.equal(reborn.submissions.get(done.id).state, 'pending_review');
 });
+
+test('enrollment is closed unless the gateway opts in', async () => {
+  const closed = await fetch(`${base}/c/v1/enroll`, { method: 'POST', body: JSON.stringify({ name: 'phone' }), headers: { 'Content-Type': 'application/json' } });
+  assert.equal(closed.status, 403);
+});
+
+test('open enrollment issues a contributor key that only works on contributor routes', async () => {
+  const store = new JsonFileStore(path.join(dataDir, 'store.json'));
+  const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: null, reviewToken: null, openEnrollment: true, limits: DEFAULT_LIMITS };
+  const open = createGateway(config, store);
+  await new Promise<void>((resolve) => open.server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(open.server.address() as AddressInfo).port}`;
+  try {
+    const enroll = (body: unknown) => fetch(`${url}/c/v1/enroll`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+    assert.equal((await enroll({ name: '' })).status, 400);
+    const response = await enroll({ name: 'Test iPhone' });
+    assert.equal(response.status, 201);
+    const { key } = (await response.json()) as { key: string };
+    assert.match(key, /^ct_/);
+    assert.equal((await fetch(`${url}/c/v1/tasks`, { headers: { Authorization: `Bearer ${key}` } })).status, 200);
+    assert.equal((await fetch(`${url}/mcp`, { method: 'POST', body: '{}', headers: { Authorization: `Bearer ${key}` } })).status, 401);
+  } finally {
+    open.server.closeAllConnections();
+    open.server.close();
+  }
+});
