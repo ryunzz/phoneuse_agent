@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import path from 'node:path';
 import { FONT_LINKS, PAGE_CSP, THEME_CSS } from './theme.js';
@@ -43,6 +43,33 @@ export interface EpisodeSummary {
   readonly reported_by: string | null;
   readonly reviewed: number;
   readonly exportable: boolean;
+  /** Steps whose result is missing (interrupted) or failed_or_unknown. */
+  readonly incomplete_steps: number;
+  /** Why the episode cannot be exported as-is, or null when it is complete. */
+  readonly issue: string | null;
+}
+
+export interface UnreadableEpisode {
+  readonly episode_id: string;
+  readonly reason: string;
+}
+
+export interface ReviewStats {
+  readonly episodes: number;
+  readonly steps: number;
+  readonly awaiting_review: number;
+  readonly labeled: number;
+  readonly incomplete_steps: number;
+  readonly reported_success: number;
+  readonly unfinished: number;
+  readonly exportable: number;
+  readonly unreadable: number;
+}
+
+export interface ReviewIndex {
+  readonly stats: ReviewStats;
+  readonly episodes: readonly EpisodeSummary[];
+  readonly unreadable: readonly UnreadableEpisode[];
 }
 
 export interface StepView {
@@ -113,8 +140,16 @@ function load(folder: string): Loaded {
   return { meta, outcome: outcomes.at(-1) ?? null, steps };
 }
 
+function issueFor(outcome: Row | null, steps: readonly StepView[], incomplete: number): string | null {
+  if (incomplete > 0) return `${incomplete} step${incomplete === 1 ? '' : 's'} interrupted or failed`;
+  if (!outcome) return 'unfinished: no outcome recorded';
+  if (steps.length === 0) return 'no steps recorded';
+  return null;
+}
+
 function summarize(id: string, { meta, outcome, steps }: Loaded): EpisodeSummary {
   const success = outcome?.outcome === 'success';
+  const incomplete = steps.filter((step) => step.status !== 'complete').length;
   return {
     episode_id: id,
     instruction: String(meta.instruction ?? ''),
@@ -130,7 +165,40 @@ function summarize(id: string, { meta, outcome, steps }: Loaded): EpisodeSummary
       steps.length > 0 &&
       steps.every((step) => step.status === 'complete') &&
       steps.some((step) => step.label === 'correct' || step.label === 'recovery'),
+    incomplete_steps: incomplete,
+    issue: issueFor(outcome, steps, incomplete),
   };
+}
+
+function statsFor(episodes: readonly EpisodeSummary[], unreadable: number): ReviewStats {
+  const sum = (pick: (episode: EpisodeSummary) => number) => episodes.reduce((total, episode) => total + pick(episode), 0);
+  return {
+    episodes: episodes.length,
+    steps: sum((e) => e.steps),
+    awaiting_review: sum((e) => e.steps - e.reviewed),
+    labeled: sum((e) => e.reviewed),
+    incomplete_steps: sum((e) => e.incomplete_steps),
+    reported_success: episodes.filter((e) => e.outcome === 'success').length,
+    unfinished: episodes.filter((e) => e.outcome === null).length,
+    exportable: episodes.filter((e) => e.exportable).length,
+    unreadable,
+  };
+}
+
+/** True for symlinks: like review.py, never follow links out of the trace directory. */
+function isSymlink(file: string): boolean {
+  try {
+    return lstatSync(file).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** Reviewer name, same bounds as episodes.annotate() (1-200 characters). */
+function reviewerName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || name.length > 200) throw new ReviewError(400, 'reviewer must be your name, 1-200 characters');
+  return name;
 }
 
 function tokenMatches(given: string, expected: string): boolean {
@@ -155,22 +223,34 @@ export function createReviewApi(traceDir: string | null, reviewToken: string | n
   const folderFor = (id: string): string => {
     if (!traceDir || !EPISODE_ID.test(id)) throw new ReviewError(404, 'Episode not found');
     const folder = path.join(traceDir, id);
-    if (!existsSync(path.join(folder, 'episode.json'))) throw new ReviewError(404, 'Episode not found');
+    if (isSymlink(folder) || isSymlink(path.join(folder, 'episode.json')) || !existsSync(path.join(folder, 'episode.json'))) {
+      throw new ReviewError(404, 'Episode not found');
+    }
     return folder;
   };
 
-  const list = (): EpisodeSummary[] => {
-    if (!traceDir || !existsSync(traceDir)) return [];
+  const list = (): ReviewIndex => {
     const summaries: EpisodeSummary[] = [];
-    for (const id of readdirSync(traceDir)) {
-      if (!EPISODE_ID.test(id) || !existsSync(path.join(traceDir, id, 'episode.json'))) continue;
+    const unreadable: UnreadableEpisode[] = [];
+    const ids = traceDir && existsSync(traceDir) ? readdirSync(traceDir).filter((id) => EPISODE_ID.test(id)) : [];
+    for (const id of ids) {
+      const folder = path.join(traceDir!, id);
+      if (isSymlink(folder)) {
+        unreadable.push({ episode_id: id, reason: 'symlinked folder rejected' });
+        continue;
+      }
+      if (!existsSync(path.join(folder, 'episode.json'))) {
+        unreadable.push({ episode_id: id, reason: 'missing episode.json' });
+        continue;
+      }
       try {
-        summaries.push(summarize(id, load(path.join(traceDir, id))));
-      } catch (error) {
-        console.warn(`[review] skipping unreadable episode ${id}`, error);
+        summaries.push(summarize(id, load(folder)));
+      } catch {
+        unreadable.push({ episode_id: id, reason: 'unreadable episode.json or logs' });
       }
     }
-    return summaries.sort((a, b) => b.started_at - a.started_at);
+    const episodes = summaries.sort((a, b) => b.started_at - a.started_at);
+    return { stats: statsFor(episodes, unreadable.length), episodes, unreadable };
   };
 
   const authorize = (req: IncomingMessage): void => {
@@ -198,7 +278,7 @@ export function createReviewApi(traceDir: string | null, reviewToken: string | n
         const folder = folderFor(image[1]);
         if (!IMAGE_NAME.test(image[2])) throw new ReviewError(404, 'Image not found');
         const file = path.join(folder, image[2]);
-        if (!existsSync(file)) throw new ReviewError(404, 'Image not found');
+        if (isSymlink(file) || !existsSync(file)) throw new ReviewError(404, 'Image not found');
         return { status: 200, body: readFileSync(file), type: 'image/jpeg' };
       }
 
@@ -212,9 +292,10 @@ export function createReviewApi(traceDir: string | null, reviewToken: string | n
           throw new ReviewError(400, `label must be one of ${STEP_LABELS.join(', ')}`);
         }
         const note = optionalNote(body?.note);
+        const reviewer = reviewerName(body?.reviewer);
         if (!load(folder).steps.some((item) => item.step === step)) throw new ReviewError(404, 'Step not found');
         // Same row shape as episodes.annotate(), so the Python exporter reads it unchanged.
-        const row = { step, label: value, reviewer: 'web-review', note, boxes: [], coordinate_space: 'before_image_normalized', at: Date.now() / 1000 };
+        const row = { step, label: value, reviewer, note, boxes: [], coordinate_space: 'before_image_normalized', at: Date.now() / 1000 };
         append(path.join(folder, 'annotations.jsonl'), row);
         return { status: 200, body: row };
       }
@@ -227,7 +308,7 @@ export function createReviewApi(traceDir: string | null, reviewToken: string | n
         if (typeof value !== 'string' || !OUTCOMES.includes(value as Outcome)) {
           throw new ReviewError(400, `outcome must be one of ${OUTCOMES.join(', ')}`);
         }
-        const row = { outcome: value, note: optionalNote(body?.note), finished_at: Date.now() / 1000, reported_by: 'reviewer' };
+        const row = { outcome: value, note: optionalNote(body?.note), finished_at: Date.now() / 1000, reported_by: 'reviewer', reviewer: reviewerName(body?.reviewer) };
         append(path.join(folder, 'outcome.jsonl'), row);
         return { status: 200, body: row };
       }
@@ -264,6 +345,16 @@ main { flex: 1; display: grid; gap: 6px; padding: 6px; grid-template-columns: mi
 .ep-meta .ok { color: var(--clip-audio); }
 .ep-meta .bad { color: var(--rec); }
 .none { padding: 14px 12px; color: var(--ink-faint); font: 400 12px/16px var(--font-mono); }
+.ep-issue { margin-top: 2px; font: 400 11px/14px var(--font-mono); color: var(--clip-fx); }
+.episodes li.broken { padding: 8px 12px; }
+.episodes li.broken .ep-title { color: var(--ink-faint); font-family: var(--font-mono); font-size: 12px; }
+.episodes li.broken .ep-issue { color: var(--rec); }
+.stats { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--line); background: var(--panel-000); }
+.stats div { padding: 6px 16px; border-right: 1px solid var(--line); }
+.stats b { display: block; font: 400 22px/26px var(--font-display); color: var(--ink); }
+.stats span { font: 600 10px/14px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+#reviewer { width: 170px; padding: 3px 8px; text-transform: none; letter-spacing: 0; }
+#reviewer.need { border-color: var(--rec); }
 
 /* Program: before/after monitor */
 .monitor { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; background: var(--black); min-height: 0; }
@@ -334,7 +425,8 @@ const PAGE_HTML = `
   <a class="wordmark" href="/dashboard">Phone Use <em>review</em></a>
   <div class="meta"><span id="count">--</span><span class="dot" id="live"></span></div>
 </header>
-<div class="project"><span>Project: <b>Episodes.prproj</b></span><span id="msg">Enter the review token.</span><button class="linkbtn" id="signout" type="button" hidden>change token</button></div>
+<div class="project"><span>Project: <b>Episodes.prproj</b></span><span id="msg">Enter the review token.</span><span class="acts"><input id="reviewer" maxlength="200" placeholder="Reviewer name" aria-label="Reviewer name" autocomplete="name" hidden><button class="linkbtn" id="signout" type="button" hidden>change token</button></span></div>
+<div class="stats" id="stats" hidden aria-label="Review statistics"></div>
 <section class="gate" id="gate">
   <div><h1>Review episodes</h1><p>label agent steps for the VLA</p>
   <form id="tokenform"><label class="sr" for="token" hidden>Review token</label><input id="token" type="password" autocomplete="off" placeholder="REVIEW_TOKEN" aria-label="Review token"><button type="submit">Load</button></form></div>
@@ -374,8 +466,18 @@ const PAGE_JS = `
   const KEY = 'phoneuse.reviewToken';
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
-  const store = { get() { try { return sessionStorage.getItem(KEY); } catch { return null; } }, set(v) { try { v ? sessionStorage.setItem(KEY, v) : sessionStorage.removeItem(KEY); } catch {} } };
-  let token = store.get(), episodes = [], current = null, stepIndex = 0, urls = [];
+  const session = (key) => ({ get() { try { return sessionStorage.getItem(key); } catch { return null; } }, set(v) { try { v ? sessionStorage.setItem(key, v) : sessionStorage.removeItem(key); } catch {} } });
+  const store = session(KEY), reviewerStore = session('phoneuse.reviewer');
+  let token = store.get(), episodes = [], unreadable = [], current = null, stepIndex = 0, urls = [];
+  $('reviewer').value = reviewerStore.get() || '';
+  $('reviewer').addEventListener('input', () => { reviewerStore.set($('reviewer').value.trim()); $('reviewer').classList.remove('need'); });
+  function reviewer() {
+    const name = $('reviewer').value.trim();
+    if (name && name.length <= 200) return name;
+    $('reviewer').classList.add('need'); $('reviewer').focus();
+    message('Enter your reviewer name before labeling.', true);
+    return null;
+  }
 
   function message(text, bad) { $('msg').textContent = text; $('msg').classList.toggle('err', !!bad); }
   async function api(path, options) {
@@ -386,27 +488,42 @@ const PAGE_JS = `
   }
   function signOut(text) {
     token = null; store.set(null); episodes = []; current = null;
-    $('workspace').hidden = true; $('gate').hidden = false; $('signout').hidden = true; $('live').classList.remove('live');
+    $('workspace').hidden = true; $('gate').hidden = false; $('signout').hidden = true; $('reviewer').hidden = true; $('stats').hidden = true; $('live').classList.remove('live');
     message(text || 'Enter the review token.', !!text);
   }
 
   async function loadList(selectId) {
     const res = await api('/v1/episodes');
-    episodes = await res.json();
-    $('gate').hidden = true; $('workspace').hidden = false; $('signout').hidden = false; $('live').classList.add('live');
-    const exportable = episodes.filter((e) => e.exportable).length;
-    $('count').textContent = episodes.length + ' episodes';
-    $('epcount').textContent = exportable + ' exportable';
+    const index = await res.json();
+    episodes = index.episodes; unreadable = index.unreadable;
+    $('gate').hidden = true; $('workspace').hidden = false; $('signout').hidden = false; $('reviewer').hidden = false; $('live').classList.add('live');
+    $('count').textContent = index.stats.episodes + ' episodes';
+    $('epcount').textContent = index.stats.exportable + ' exportable';
+    renderStats(index.stats);
     message('Loaded ' + new Date().toLocaleTimeString([], { hour12: false }));
     renderList();
     const target = selectId || (current && current.id) || (episodes[0] && episodes[0].episode_id);
     if (target) await openEpisode(target, current && current.id === target ? stepIndex : 0);
   }
 
+  function renderStats(stats) {
+    const box = $('stats');
+    box.replaceChildren();
+    const items = [['Episodes', stats.episodes], ['Awaiting review', stats.awaiting_review], ['Labeled', stats.labeled],
+      ['Reported success', stats.reported_success], ['Incomplete / failed', stats.incomplete_steps + stats.unreadable], ['Exportable', stats.exportable]];
+    for (const [name, value] of items) { const d = el('div'); d.append(el('b', '', String(value)), el('span', '', name)); box.append(d); }
+    box.hidden = false;
+  }
+
   function renderList() {
     const list = $('episodes');
     list.replaceChildren();
-    if (!episodes.length) { list.append(el('li', 'none', 'No recorded episodes yet.')); return; }
+    if (!episodes.length && !unreadable.length) { list.append(el('li', 'none', 'No recorded episodes yet.')); return; }
+    for (const bad of unreadable) {
+      const li = el('li', 'broken');
+      li.append(el('div', 'ep-title', bad.episode_id.slice(0, 12) + '…'), el('div', 'ep-issue', bad.reason));
+      list.append(li);
+    }
     for (const ep of episodes) {
       const li = el('li'), b = el('button');
       b.type = 'button';
@@ -418,6 +535,7 @@ const PAGE_JS = `
       meta.append(el('span', '', ep.reviewed + '/' + ep.steps + ' reviewed'));
       if (ep.exportable) meta.append(el('span', 'ok', '● export'));
       b.append(meta);
+      if (ep.issue) b.append(el('div', 'ep-issue', ep.issue));
       b.addEventListener('click', () => openEpisode(ep.episode_id, 0));
       li.append(b); list.append(li);
     }
@@ -507,8 +625,10 @@ const PAGE_JS = `
   async function label(value) {
     const step = current && current.steps[stepIndex];
     if (!step) return;
+    const name = reviewer();
+    if (!name) return;
     try {
-      await api('/v1/episodes/' + current.id + '/steps/' + step.step + '/label', { method: 'POST', body: JSON.stringify({ label: value }) });
+      await api('/v1/episodes/' + current.id + '/steps/' + step.step + '/label', { method: 'POST', body: JSON.stringify({ label: value, reviewer: name }) });
       message('Step ' + step.step + ' marked ' + value);
       const next = Math.min(stepIndex + 1, current.steps.length - 1);
       await loadList(current.id);
@@ -518,8 +638,10 @@ const PAGE_JS = `
 
   async function setOutcome(value) {
     if (!current) return;
+    const name = reviewer();
+    if (!name) return;
     try {
-      await api('/v1/episodes/' + current.id + '/outcome', { method: 'POST', body: JSON.stringify({ outcome: value }) });
+      await api('/v1/episodes/' + current.id + '/outcome', { method: 'POST', body: JSON.stringify({ outcome: value, reviewer: name }) });
       message('Episode marked ' + value);
       await loadList(current.id);
     } catch (e) { if (e.message !== 'unauthorized') message(e.message, true); }
