@@ -62,17 +62,14 @@ struct SubmissionRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reviewer feedback").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Text(review.reason)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             }
-            if submission.state == "approved" {
-                Text("Approved. Payments are not enabled in this beta.").font(.caption).foregroundStyle(.secondary)
-            }
         }
         .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
     }
 
     private func parseDate(_ text: String) -> Date? {
