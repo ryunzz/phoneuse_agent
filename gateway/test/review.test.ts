@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -76,8 +76,15 @@ test('review API requires the review token', async () => {
 });
 
 test('lists episodes and returns step detail', async () => {
-  const list = await (await fetch(`${base}/v1/episodes`, { headers: auth })).json();
+  const index = await (await fetch(`${base}/v1/episodes`, { headers: auth })).json();
+  const list = index.episodes;
   assert.equal(list.length, 1);
+  assert.deepEqual(index.unreadable, []);
+  assert.equal(list[0].issue, null);
+  assert.deepEqual(index.stats, {
+    episodes: 1, steps: 2, awaiting_review: 2, labeled: 0, incomplete_steps: 0,
+    reported_success: 0, unfinished: 0, exportable: 0, unreadable: 0,
+  });
   assert.deepEqual(
     { id: list[0].episode_id, steps: list[0].steps, outcome: list[0].outcome, by: list[0].reported_by, reviewed: list[0].reviewed, exportable: list[0].exportable },
     { id: EPISODE, steps: 2, outcome: 'failed', by: 'agent', reviewed: 0, exportable: false },
@@ -100,17 +107,25 @@ test('serves frames and rejects path traversal', async () => {
 });
 
 test('labels and outcome feed the Python exporter', async () => {
-  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/9/label`, { label: 'correct' })).status, 404);
-  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'great' })).status, 400);
-  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'correct', note: 'right icon' })).status, 200);
-  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/2/label`, { label: 'mistake' })).status, 200);
-  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/outcome`, { outcome: 'success' })).status, 200);
+  const who = { reviewer: 'Ryan' };
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/9/label`, { label: 'correct', ...who })).status, 404);
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'great', ...who })).status, 400);
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'correct' })).status, 400, 'reviewer name is required');
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'correct', reviewer: '  ' })).status, 400);
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/outcome`, { outcome: 'success' })).status, 400, 'reviewer name is required');
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/1/label`, { label: 'correct', note: 'right icon', ...who })).status, 200);
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/steps/2/label`, { label: 'mistake', ...who })).status, 200);
+  assert.equal((await post(`${base}/v1/episodes/${EPISODE}/outcome`, { outcome: 'success', ...who })).status, 200);
 
   const annotation = JSON.parse(readFileSync(path.join(traceDir, EPISODE, 'annotations.jsonl'), 'utf8').split('\n')[0]);
   assert.deepEqual(Object.keys(annotation).sort(), ['at', 'boxes', 'coordinate_space', 'label', 'note', 'reviewer', 'step']);
+  assert.equal(annotation.reviewer, 'Ryan');
   assert.ok(annotation.at > 1e9 && annotation.at < 1e11, 'timestamps are Unix seconds');
 
-  const [summary] = await (await fetch(`${base}/v1/episodes`, { headers: auth })).json();
+  const { episodes: [summary], stats } = await (await fetch(`${base}/v1/episodes`, { headers: auth })).json();
+  assert.equal(stats.labeled, 2);
+  assert.equal(stats.reported_success, 1);
+  assert.equal(stats.exportable, 1);
   assert.equal(summary.reviewed, 2);
   assert.equal(summary.exportable, true);
   assert.equal(summary.reported_by, 'reviewer');
@@ -138,4 +153,34 @@ test('review is disabled without a review token', async () => {
   } finally {
     off.gateway.server.close();
   }
+});
+
+test('incomplete, corrupt and symlinked episodes are listed with a reason, never followed', async () => {
+  const interrupted = 'c'.repeat(32);
+  const folder = path.join(traceDir, interrupted);
+  mkdirSync(folder);
+  writeFileSync(path.join(folder, 'episode.json'), JSON.stringify({ schema_version: 1, episode_id: interrupted, instruction: 'Interrupted', group: 'g', split: 'train', started_at: 1 }));
+  writeFileSync(path.join(folder, 'steps.jsonl'), JSON.stringify({ event: 'intent', step: 1, action: { type: 'home' }, before: frame(folder, '00001-before.jpg', 'iphone-home-after-test.png'), label: 'unreviewed', note: '', dispatched_at: 2 }) + '\n');
+  const corrupt = path.join(traceDir, 'd'.repeat(32));
+  mkdirSync(corrupt);
+  writeFileSync(path.join(corrupt, 'episode.json'), '{not json');
+  const linked = 'e'.repeat(32);
+  symlinkSync(folder, path.join(traceDir, linked));
+
+  const index = await (await fetch(`${base}/v1/episodes`, { headers: auth })).json();
+  const open = index.episodes.find((e: { episode_id: string }) => e.episode_id === interrupted);
+  assert.equal(open.incomplete_steps, 1);
+  assert.match(open.issue, /1 step interrupted or failed/);
+  assert.deepEqual(
+    index.unreadable.map((u: { episode_id: string; reason: string }) => [u.episode_id[0], u.reason]).sort(),
+    [['d', 'unreadable episode.json or logs'], ['e', 'symlinked folder rejected']],
+  );
+  assert.equal(index.stats.unreadable, 2);
+  assert.equal(index.stats.unfinished, 1);
+  assert.equal((await fetch(`${base}/v1/episodes/${linked}`, { headers: auth })).status, 404, 'symlinked episodes are not served');
+  assert.equal((await fetch(`${base}/v1/episodes/${linked}/images/00001-before.jpg`, { headers: auth })).status, 404);
+
+  symlinkSync(path.join(REPO, 'iphone-settings-test.png'), path.join(folder, '00002-before.jpg'));
+  assert.equal((await fetch(`${base}/v1/episodes/${interrupted}/images/00002-before.jpg`, { headers: auth })).status, 404, 'symlinked images are not served');
+  assert.equal((await fetch(`${base}/v1/episodes/${interrupted}/images/00001-before.jpg`, { headers: auth })).status, 200);
 });

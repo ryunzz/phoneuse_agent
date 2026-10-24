@@ -18,7 +18,9 @@ main { flex: 1; display: grid; gap: 6px; padding: 6px; grid-template-columns: mi
 /* Program: hero number */
 .label { font: 500 12px/16px var(--font-mono); letter-spacing: .24em; text-transform: uppercase; color: var(--ink-faint); }
 .hero { font: 400 76px/0.95 var(--font-display); letter-spacing: -0.01em; margin: 10px 0 18px; font-variant-numeric: lining-nums; }
-.readout { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.readout { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.readout .in { color: var(--clip-image); } .readout .out { color: var(--clip-video); }
+@media (max-width: 760px) { .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; } .readout div:nth-child(3) { padding-left: 0; border-left: 0; } }
 .readout div { padding: 10px 0 0; }
 .readout div + div { padding-left: 12px; border-left: 1px solid var(--line); }
 .readout .k { font: 600 11px/16px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
@@ -100,7 +102,8 @@ const PAGE_HTML = `
       <div class="label">Tokens billed</div>
       <div class="hero" id="t-tokens">0</div>
       <div class="readout" id="readout">
-        <div><div class="k">Image tokens</div><div class="v" id="t-image">0</div><div class="sub">sent to the model</div></div>
+        <div><div class="k">Tokens in</div><div class="v in" id="t-in">0</div><div class="sub">from the agent</div></div>
+        <div><div class="k">Tokens out</div><div class="v out" id="t-out">0</div><div class="sub" id="t-image">0 image</div></div>
         <div><div class="k">Calls</div><div class="v" id="t-calls">0</div><div class="sub" id="t-failed">no failures</div></div>
         <div><div class="k">Rig time</div><div class="v timecode" id="t-rig">00:00:00</div><div class="sub">hh:mm:ss leased</div></div>
       </div>
@@ -250,7 +253,9 @@ const PAGE_JS = `
 
   function render(u) {
     $('t-tokens').textContent = fmt(u.tokens);
-    $('t-image').textContent = fmt(u.imageTokens);
+    $('t-in').textContent = fmt(u.tokensIn || 0);
+    $('t-out').textContent = fmt(u.tokensOut || 0);
+    $('t-image').textContent = 'incl. ' + fmt(u.imageTokens) + ' image';
     $('t-calls').textContent = fmt(u.calls);
     $('t-failed').textContent = u.failedCalls ? fmt(u.failedCalls) + ' failed' : 'no failures';
     $('t-rig').textContent = timecode(u.rigMs);

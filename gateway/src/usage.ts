@@ -12,6 +12,9 @@ export const DEFAULT_PRICING: Readonly<Record<string, number>> = {
   phone_connect: 0,
   phone_disconnect: 0,
   phone_task_done: 0,
+  ask_user: 0,
+  phone_do: 50,
+  vla_step: 150,
   rigs_list: 0,
   usage_get: 0,
 };
@@ -25,6 +28,10 @@ export interface UsageEvent {
   readonly images: number;
   readonly imageBytes: number;
   readonly imageTokens: number;
+  /** Estimated tokens the agent sent us (tool arguments). */
+  readonly tokensIn: number;
+  /** Estimated tokens we returned to the agent (text + images). */
+  readonly tokensOut: number;
   readonly tokens: number;
   readonly at: string;
 }
@@ -39,6 +46,8 @@ export interface ToolUsage {
 export interface RecentCall {
   readonly tool: string;
   readonly ok: boolean;
+  readonly tokensIn: number;
+  readonly tokensOut: number;
   readonly tokens: number;
   readonly imageTokens: number;
   readonly durationMs: number;
@@ -54,6 +63,8 @@ export interface UsageSummary {
   readonly rigMs: number;
   readonly tokens: number;
   readonly imageTokens: number;
+  readonly tokensIn: number;
+  readonly tokensOut: number;
   readonly byTool: Readonly<Record<string, ToolUsage>>;
 }
 
@@ -68,7 +79,7 @@ const WINDOW_MINUTES = 60;
 const MINUTE = 60_000;
 
 function emptySummary(keyId: string): UsageSummary {
-  return { keyId, calls: 0, failedCalls: 0, images: 0, imageBytes: 0, rigMs: 0, tokens: 0, imageTokens: 0, byTool: {} };
+  return { keyId, calls: 0, failedCalls: 0, images: 0, imageBytes: 0, rigMs: 0, tokens: 0, imageTokens: 0, tokensIn: 0, tokensOut: 0, byTool: {} };
 }
 
 function addEvent(summary: UsageSummary, event: UsageEvent): UsageSummary {
@@ -82,6 +93,8 @@ function addEvent(summary: UsageSummary, event: UsageEvent): UsageSummary {
     rigMs: summary.rigMs + (event.rigId ? event.durationMs : 0),
     tokens: summary.tokens + event.tokens,
     imageTokens: summary.imageTokens + event.imageTokens,
+    tokensIn: summary.tokensIn + event.tokensIn,
+    tokensOut: summary.tokensOut + event.tokensOut,
     byTool: { ...summary.byTool, [event.tool]: { calls: tool.calls + 1, tokens: tool.tokens + event.tokens } },
   };
 }
@@ -98,6 +111,8 @@ function normalize(raw: Partial<UsageEvent>): UsageEvent | null {
     images: raw.images ?? 0,
     imageBytes: raw.imageBytes ?? 0,
     imageTokens: raw.imageTokens ?? 0,
+    tokensIn: raw.tokensIn ?? 0,
+    tokensOut: raw.tokensOut ?? raw.imageTokens ?? 0,
     tokens: raw.tokens ?? 0,
     at: raw.at,
   };
@@ -168,9 +183,14 @@ export class UsageLedger {
     const recent = events
       .slice(-RECENT_LIMIT)
       .reverse()
-      .map(({ tool, ok, tokens, imageTokens, durationMs, at }) => ({ tool, ok, tokens, imageTokens, durationMs, at }));
+      .map(({ tool, ok, tokensIn, tokensOut, tokens, imageTokens, durationMs, at }) => ({ tool, ok, tokensIn, tokensOut, tokens, imageTokens, durationMs, at }));
     return { ...this.summary(keyId), recent, perMinute, pricing: this.pricing };
   }
+}
+
+/** Rough text-token estimate (about 4 characters per token), for metering only. */
+export function estimateTextTokens(value: string): number {
+  return Math.ceil(value.length / 4);
 }
 
 /** Rough Claude image-token estimate (width*height/750 after downscaling to 1568px), for metering. */

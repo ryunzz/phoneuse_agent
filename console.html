@@ -2,16 +2,16 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Device controller</title>
+<title>Rig console</title>
 <style>
 body{font:17px system-ui;background:#151a20;color:#edf2f7;max-width:850px;margin:6vh auto;padding:24px}h1{font-size:36px;margin-bottom:8px}p{color:#bfcbd6;line-height:1.6}button,input{font:inherit;border:1px solid #576574;border-radius:8px;padding:13px;background:#252f3a;color:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}input{box-sizing:border-box;width:100%;margin:16px 0}button.primary{background:#ed7734;color:#10151a;font-weight:650}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0e1217;padding:20px;border-radius:10px;font-size:14px;min-height:160px}#message{min-height:28px}.buttons{display:flex;gap:10px;flex-wrap:wrap}label{display:block}small{color:#a5b5c5}
 </style>
-<nav aria-label="Dashboards"><a href="/controller" aria-current="page" style="color:#f79d66">Device controller</a> · <a href="/admin" style="color:#f79d66">Admin / trace reviews</a></nav>
-<h1>Device controller</h1>
-<p>Give Claude a phone task by voice or text, or preview a bounded printer command.</p>
+<nav aria-label="Dashboards"><a href="/controller" aria-current="page" style="color:#f79d66">Rig console</a> · Trace review lives on the gateway at <code>/review</code></nav>
+<h1>Rig console</h1>
+<p>Give Claude a phone task by voice or text, record a demonstration, or preview a bounded rig motion command.</p>
 <section aria-label="Claude phone agent">
 <h2>Ask Claude to use your phone</h2>
-<p>Unlock iPhone Mirroring first. Claude receives screenshots and task text and operates the real phone through Mirroring. Every action is recorded locally.</p>
+<p>Claude runs as a client of the Phone Use gateway (set <code>GATEWAY_URL</code> and <code>PHONEUSE_API_KEY</code> before starting this console). The gateway drives the rig, records the session for review, and bills tokens. Today the rig acts through iPhone Mirroring, so unlock it first.</p>
 <form id="agent-form">
 <label for="agent-task">Phone task</label><input id="agent-task" maxlength="2000" placeholder="Open Settings and find Display &amp; Brightness">
 <div class="buttons"><button type="button" id="agent-mic">Record phone task</button><button type="submit" id="agent-run" class="primary">Run Claude on phone</button><button type="button" id="agent-stop" disabled>Stop Claude</button></div>
@@ -48,15 +48,15 @@ body{font:17px system-ui;background:#151a20;color:#edf2f7;max-width:850px;margin
 <pre id="episode-result" aria-label="Latest recorded phone step" style="min-height:0"></pre>
 </section>
 <form id="form">
-<label for="command">Voice prompt or printer command</label>
+<label for="command">Voice prompt or rig motion command</label>
 <input id="command" placeholder="Move the x axis by five millimeters" autocomplete="off" maxlength="200" aria-describedby="voice-help">
 <div class="buttons"><button class="primary" type="submit">Preview prompt</button><button id="mic" type="button">Record voice prompt</button><button id="send" type="button" disabled>Confirm execution</button><button id="status" type="button">Read status</button></div>
 </form>
 <p id="voice-help">Hold Option+Space while speaking, then release to fill the prompt. Or click Record voice prompt, then Stop recording. Press Enter to preview. Whisper transcribes locally on this Mac. Review the transcript and interpreted command before confirming. Maximum recording: 30 seconds.</p>
 <pre id="output" aria-label="Command result"></pre>
-<p><strong>Commands</strong><br>status · temperatures · home · home x y · jog x 5 · jog z -1 · heat nozzle 200 · heat bed 60 · cooldown · pause · resume · cancel</p>
-<p>Jog is relative, at most 10 mm per command. Cancel requests print cancellation; it is not a hardware emergency stop. Use the printer’s physical controls for an emergency.</p>
-<p><strong>Try saying</strong><br>“Move the x axis by five millimeters.” · “Lower z by one millimeter.” · “Set the bed temperature to sixty degrees.” · “Pause the print.”</p>
+<p><strong>Commands</strong><br>status · home · home x y · jog x 5 · jog z -1</p>
+<p>Jog is relative, at most 10 mm per command. Nothing here is an emergency stop; use the printer’s physical power switch.</p>
+<p><strong>Try saying</strong><br>“Move the x axis by five millimeters.” · “Lower z by one millimeter.” · “Home all axes.”</p>
 <p><small>Voice engine: whisper.cpp · base.en · runs on this Mac. Audio stays local; temporary audio files are deleted after transcription. No dictation app, account, or cloud API key is required.</small></p>
 <script>
 const token='__TOKEN__';
@@ -178,8 +178,8 @@ let agentPollStopped=false;
 async function refreshAgent(){
  const response=await fetch('/agent/status');if(!response.ok)throw new Error('Claude status unavailable');
  const state=await response.json();
- agentStatus.textContent='Claude: '+state.status+(state.episode_id?' · trace '+state.episode_id:'');
- agentOutput.textContent=state.events.filter(event=>!(event.kind==='result'&&state.events.some(previous=>previous.kind==='text'&&previous.text===event.text))).map(event=>event.kind==='action'?JSON.stringify({action:event.action,result:event.result?.result?.error||event.result?.result?.receipt||event.result?.result?.status}):event.kind==='error'?'Error: '+(event.text||'unknown')+(event.details?'\n'+event.details.join('\n'):''):event.text||event.kind).join('\n\n');
+ agentStatus.textContent='Claude: '+state.status+(state.gateway?' · via '+state.gateway:'');
+ agentOutput.textContent=state.events.filter(event=>!(event.kind==='result'&&state.events.some(previous=>previous.kind==='text'&&previous.text===event.text))).map(event=>event.kind==='tool'?event.name+' '+JSON.stringify(event.input):event.kind==='action'?JSON.stringify({action:event.action,result:event.result?.result?.error||event.result?.result?.receipt||event.result?.result?.status}):event.kind==='error'?'Error: '+(event.text||'unknown')+(event.details?'\n'+event.details.join('\n'):''):event.text||event.kind).join('\n\n');
  document.getElementById('agent-run').disabled=state.running;
  document.getElementById('agent-stop').disabled=!state.running;
  document.getElementById('episode-start').disabled=state.running||episodeActive;

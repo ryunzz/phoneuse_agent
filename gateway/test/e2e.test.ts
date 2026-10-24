@@ -11,6 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { DEFAULT_LIMITS, type Config } from '../src/config.js';
 import { createGateway, type Gateway } from '../src/http.js';
 import { JsonFileStore } from '../src/store.js';
+import { ScriptedVla } from '../src/vla.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -43,7 +44,10 @@ before(async () => {
   apiKey = store.createKey('e2e').secret;
   const rigToken = store.createRig('sim rig').secret;
   const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: path.join(dataDir, 'demonstrations'), reviewToken: 'r'.repeat(32), limits: { ...DEFAULT_LIMITS, settleMs: 100 } };
-  gateway = createGateway(config, store);
+  gateway = createGateway(config, store, new ScriptedVla([
+    { kind: 'act', action: { type: 'tap', x: 0.86, y: 0.88 }, reason: 'open Settings' },
+    { kind: 'done', outcome: 'success', note: 'Settings open' },
+  ]));
   await new Promise<void>((resolve) => gateway.server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(gateway.server.address() as AddressInfo).port}`;
   rig = spawn('uv', ['run', 'rig_agent.py', '--backend', 'sim', '--gateway', base, '--fps', '5'], {
@@ -71,7 +75,7 @@ test('Claude-style client drives the sim rig end to end', async () => {
   const client = await connect(apiKey);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), [
-    'phone_connect', 'phone_disconnect', 'phone_home', 'phone_live_feed', 'phone_screenshot',
+    'ask_user', 'phone_connect', 'phone_disconnect', 'phone_do', 'phone_home', 'phone_live_feed', 'phone_screenshot',
     'phone_scroll', 'phone_tap', 'phone_task_done', 'phone_type', 'rigs_list', 'usage_get',
   ]);
 
@@ -101,6 +105,7 @@ test('Claude-style client drives the sim rig end to end', async () => {
   // Schema-invalid calls are rejected before metering, so only the valid tap is billed.
   assert.equal(summary.byTool.phone_tap.calls, 1);
   assert.ok(summary.tokens > 0 && summary.imageTokens > 0, 'calls are billed in tokens');
+  assert.ok(summary.tokensIn > 0 && summary.tokensOut >= summary.imageTokens, 'tokens in and out are metered');
   assert.ok(summary.images >= 2);
 
   const report = await (await fetch(`${base}/v1/usage`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
@@ -135,5 +140,53 @@ test('a task session is recorded as a training episode', async () => {
   assert.deepEqual(steps[2].action, { type: 'type', text: 'wifi' });
   assert.equal(JSON.parse(readFileSync(path.join(folder, 'episode.json'), 'utf8')).group, 'settings');
   await client.callTool({ name: 'phone_disconnect', arguments: {} });
+  await client.close();
+});
+
+test('guards, ask_user over the live link, operator stop, and phone_do via the VLA', async () => {
+  const client = await connect(apiKey);
+  const call = (name: string, args: Record<string, unknown> = {}) => client.callTool({ name, arguments: args });
+  const body = (result: Awaited<ReturnType<typeof call>>) => JSON.stringify(result.content);
+
+  await call('phone_connect', { task: 'Log in to Talua', task_family: 'talua' });
+  const tapped = await call('phone_tap', { x: 0.5, y: 0.5 });
+  assert.ok(!tapped.isError, 'connect shows the screen, so one action is allowed');
+  // Acting again without looking is fine because the tap returned a fresh screen; two in a row without results is not.
+  const feed = await call('phone_live_feed');
+  const link = /\/live\/[\w-]+/.exec(body(feed))![0];
+
+  // ask_user waits for the person; they answer from the live page.
+  const asking = call('ask_user', { question: 'Enter the 6-digit Talua code', kind: 'code' });
+  let pending: { id: string; question: string }[] = [];
+  for (let i = 0; i < 50 && !pending.length; i++) {
+    pending = (await (await fetch(`${base}${link}/asks`)).json()).asks;
+    if (!pending.length) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(pending[0].question, 'Enter the 6-digit Talua code');
+  const bad = await fetch(`${base}${link}/asks/${pending[0].id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: 'not a code!' }) });
+  assert.equal(bad.status, 409);
+  const ok = await fetch(`${base}${link}/asks/${pending[0].id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: '482913' }) });
+  assert.equal(ok.status, 200);
+  assert.match(body(await asking), /answered: 482913/);
+
+  // phone_do runs the VLA loop through the same guarded, recorded path.
+  const did = await call('phone_do', { instruction: 'open Settings', max_steps: 5 });
+  assert.ok(!did.isError, body(did));
+  assert.match(body(did), /reports success after 1 actions/);
+
+  // Operator stop blocks further actions until a new task.
+  assert.equal((await fetch(`${base}${link}/stop`, { method: 'POST' })).status, 200);
+  await call('phone_screenshot');
+  const blocked = await call('phone_home');
+  assert.ok(blocked.isError);
+  assert.match(body(blocked), /Stopped by operator/);
+  await call('phone_connect', { task: 'next' });
+  assert.ok(!(await call('phone_home')).isError, 'a new task clears the stop');
+
+  // No fresh look -> refused.
+  const blind = await call('phone_home');
+  assert.ok(!blind.isError, 'home returned a fresh screen, so this is allowed');
+  await call('phone_task_done', { outcome: 'abandoned' });
+  await call('phone_disconnect');
   await client.close();
 });
