@@ -8,6 +8,8 @@ dependencies = []
 [project.optional-dependencies]
 # Local voice prompts and Claude phone tasks. Install with: uv sync --extra voice
 voice = ["av==19.0.2", "numpy==2.5.4", "claude-agent-sdk==0.2.174"]
+# Stylus controller (controller/) and its tests. The printer machine also needs ROS Humble for the OAK camera tools.
+controller = ["numpy==2.5.4", "opencv-python-headless==5.0.0.93", "pyserial==3.5"]
 
 [tool.uv]
 package = false

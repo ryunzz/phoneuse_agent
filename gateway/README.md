@@ -13,7 +13,7 @@ bun run dev                                  # http://127.0.0.1:8787
 RIG_TOKEN=rig_... uv run rig_agent.py --backend sim
 ```
 
-Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. Use `--backend stylus` once `stylus.py` exists.
+Real phone through iPhone Mirroring: build the Swift helpers (see the root README), then `uv run rig_agent.py --backend mirroring`. For the printer-driven stylus, use `--backend stylus` with `STYLUS_COMMAND` (see the root README's "Claude on the stylus").
 
 ## Connect Claude
 
