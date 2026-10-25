@@ -4,7 +4,7 @@
 
 **Event:** Cal Hacks 13.0, Oct 23–25 2026, Palace of Fine Arts SF. **Submit by Oct 25, 9:00 AM PST (hard deadline).** The full sponsor and prize plan is in [docs/SPONSORS.md](docs/SPONSORS.md). There is no cap on sponsor tracks. Architecture, contracts and the work split are in [docs/PLAN.md](docs/PLAN.md).
 
-**Current status (be honest in demos):** phone control today goes through iPhone Mirroring, so it is **operator-mediated**. The stylus path is not yet implemented or verified on hardware. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
+**Current status (be honest in demos):** the stylus taps and swipes the real phone when run by hand. Claude → stylus (`--backend stylus`) is built but only dry-run tested. Phone control that has run end to end still goes through iPhone Mirroring, so it is **operator-mediated**. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
 
 ---
 
@@ -13,7 +13,7 @@
 | | Perception | Actuation | Status |
 |---|---|---|---|
 | **CP0** | iPhone Mirroring window (ScreenCaptureKit) | Mac input events into Mirroring (`PhoneAction.swift`) | Built; verify live with the real phone |
-| **CP1** | Mirroring | Stylus robot (printer harness `stylus.py`) | Waiting on hardware (Vikram + Vela) |
+| **CP1** | Mirroring | Stylus robot (`controller/`, via `controller/rig.py`) | Stylus works by hand; Claude → stylus dry-run tested, needs a live test |
 | **CP2** | Camera pointed at the device | Stylus robot | Needs camera → screen calibration |
 
 ---

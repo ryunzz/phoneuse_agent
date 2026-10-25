@@ -1,4 +1,5 @@
-"""Tap and swipe on the phone with the head-mounted stylus. Coordinates are printer mm (no screen mapping yet).
+"""Tap and swipe on the phone with the head-mounted stylus. Coordinates are printer mm; controller.phone maps screen
+points to them.
 
     python3 -m controller.stylus hover 100 100
     python3 -m controller.stylus tap 100 100

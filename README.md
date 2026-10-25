@@ -2,7 +2,7 @@
 
 **Cloud phones for AI agents.** Real phones sit on our rigs. Any agent drives them through a hosted MCP server with an API key, usage is billed in tokens, and every session becomes training data for our phone VLM.
 
-> **Current limitation:** phone control goes through **iPhone Mirroring on the Mac, so it's operator-mediated**. The 3D-printer stylus path is not implemented or verified on hardware yet. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
+> **Current status:** the stylus controller taps and swipes the real phone when run by hand. Claude → gateway → stylus (`--backend stylus`) is implemented but tested only with a dry-run printer. Phone control that has run end to end still goes through **iPhone Mirroring on the Mac, so it's operator-mediated**. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md).
 
 ```
 Agent (Claude, …) ──MCP──► gateway/ (Bun) ◄──long poll── rig_agent.py (uv) ──► phone
@@ -54,7 +54,7 @@ Voice uses whisper.cpp locally: `brew install whisper-cpp`, then `uv run --extra
 
 ## Stylus controller (`controller/`)
 
-Drives the physical stylus directly over USB serial (no OctoPrint): `printer.py` (serial link, X/Y homing, moves), `camera.py` (OAK-1 W frames from `depthai_ros_driver`; `RAW_TOPIC` undistorts raw frames if the rectify node stalls), `zcal.py` (camera-to-bed distance from the 50 mm grid and parallax), `stylus.py` (`hover`, `tap`, `swipe` in printer mm).
+Drives the physical stylus directly over USB serial (no OctoPrint): `printer.py` (serial link, X/Y homing, moves), `camera.py` (OAK-1 W frames from `depthai_ros_driver`; `RAW_TOPIC` undistorts raw frames if the rectify node stalls), `zcal.py` (camera-to-bed distance from the 50 mm grid and parallax), `stylus.py` (`hover`, `tap`, `swipe` in printer mm), `phone.py` (phone corners in printer mm, `phone.json`), `tasks.py` (fixed gestures in screen fractions, Home through AssistiveTouch), `rig.py` (Claude's actions, below).
 
 ```sh
 source /opt/ros/humble/setup.bash
@@ -68,6 +68,27 @@ python3 -m controller.stylus tap 100 100
 
 Tests: `tests/test_controller.py` uses a fake serial link and synthetic grid images.
 
+### Claude on the stylus (`--backend stylus`)
+
+The Mac runs iPhone Mirroring and `rig_agent.py`; the Linux machine runs the printer. For each action Claude sends through the gateway, `rig_agent` maps the Mirroring screenshot coordinates to fractions of the phone screen. It sends them as one JSON line to a long-lived `controller.rig serve` process on the printer machine, started over SSH:
+
+```sh
+# printer machine, once per phone or mount move: home X/Y, check the touch height, measure the corners
+python3 -m controller.phone survey && python3 -m controller.phone set …
+python3 -m controller.rig serve --dry-run   # optional: type {"gesture": "tap", "x": 0.5, "y": 0.5} and read the G-code
+# Mac
+STYLUS_COMMAND="ssh -o ServerAliveInterval=15 rig@printer-box 'cd phoneuse_agent && python3 -m controller.rig serve'" \
+  RIG_TOKEN=rig_… uv run rig_agent.py --backend stylus
+```
+
+- **tap**: the calibrated point.
+- **scroll**: a vertical drag of `dy` screenshot pixels, clamped to 0.1–0.6 of the screen height and slid into the printer's reach.
+- **home**: the AssistiveTouch menu.
+- **wait**: runs on the Mac.
+- **type**: refused (no keyboard map yet).
+
+Taps on the Mirroring window chrome, taps out of reach, and camera frames are refused before anything moves. Nothing retries. A timeout stops the controller, because the outcome is unknown. See [HARNESS_LIMITATIONS.md](HARNESS_LIMITATIONS.md) for what is verified on hardware.
+
 ## Training data
 
 Gateway sessions are recorded to `gateway/data/demonstrations/`, and the rig console's manual recorder writes to `demonstrations/`. Both use the same format. Steps start unreviewed. Label them at `/review` or with `uv run episodes.py label …`, then run `uv run episodes.py export --root <dir> --output exports/`. The export contains only human-labelled correct/recovery steps from successful, complete episodes.
@@ -75,7 +96,7 @@ Gateway sessions are recorded to `gateway/data/demonstrations/`, and the rig con
 ## Tests
 
 ```sh
-uv run --extra voice python -m unittest discover -s tests
+uv run --extra voice --extra controller python -m unittest discover -s tests
 cd gateway && bun test && bun run typecheck
 ```
 

@@ -16,7 +16,8 @@ class Printer:
     def __init__(self, port=PORT, baud=115200, link=None, boot_wait=3.0):
         if link is None:
             import serial
-            link = serial.Serial(port, baud, timeout=0.3)
+            # exclusive: a second controller (e.g. one left behind by a dropped SSH session) fails instead of sharing.
+            link = serial.Serial(port, baud, timeout=0.3, exclusive=True)
             # Keep DTR high on close so later opens don't reset the board (same as `stty -hupcl`).
             attrs = termios.tcgetattr(link.fileno())
             attrs[2] &= ~termios.HUPCL

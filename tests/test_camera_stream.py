@@ -1,9 +1,9 @@
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import time
-import types
 import unittest
 from unittest import mock
 
@@ -146,17 +146,41 @@ class BuildBackendTests(unittest.TestCase):
         self.assertEqual(backend.execute({'type': 'tap', 'x': 0.2, 'y': 0.3}), {'ok': True})
         self.assertEqual(self.calls, [({'type': 'tap', 'x': 0.2, 'y': 0.3}, {'source': 'camera', 'image': 'frame-1.jpg'})])
 
-    def test_real_stylus_actuator_passes_frame_keyword(self):
-        fake = types.SimpleNamespace(dispatch=mock.Mock(return_value={'moved': True}))
-        with mock.patch.dict(sys.modules, {'stylus': fake}):
+    def test_real_stylus_actuator_starts_the_controller_and_passes_the_frame(self):
+        link = mock.Mock(act=mock.Mock(return_value={'moved': True}))
+        with mock.patch('controller.rig.StylusLink.start', return_value=link) as start, \
+                mock.patch.dict(os.environ, {'STYLUS_COMMAND': "ssh rig@printer 'python3 -m controller.rig serve'"}):
             act = rig_agent.stylus_actuator()
+        start.assert_called_once_with(['ssh', 'rig@printer', 'python3 -m controller.rig serve'], cwd=rig_agent.ROOT)
         self.assertEqual(act({'type': 'home'}, {'source': 'camera'}), {'moved': True})
-        fake.dispatch.assert_called_once_with({'type': 'home'}, frame={'source': 'camera'})
+        link.act.assert_called_once_with({'type': 'home'}, {'source': 'camera'})
+        act.close()
+        link.close.assert_called_once_with()
 
-    def test_missing_stylus_module_is_a_clear_error(self):
-        with mock.patch.dict(sys.modules, {'stylus': None}):
-            with self.assertRaisesRegex(ValueError, 'stylus.py'):
-                rig_agent.stylus_actuator()
+    def test_stylus_controller_defaults_to_this_machine(self):
+        with mock.patch('controller.rig.StylusLink.start') as start, mock.patch.dict(os.environ, {'STYLUS_COMMAND': ''}):
+            rig_agent.stylus_actuator()
+        start.assert_called_once_with([sys.executable, '-m', 'controller.rig', 'serve'], cwd=rig_agent.ROOT)
+
+    def test_failed_capture_start_closes_the_actuator(self):
+        close = mock.Mock()
+
+        def actuator():
+            act = mock.Mock()
+            act.close = close
+            return act
+
+        def broken_screen(device=None):
+            raise ValueError('no capture permission')
+        with self.assertRaisesRegex(ValueError, 'no capture permission'):
+            rig_agent.build_backend('stylus', screens={'mirroring': broken_screen}, actuators={'stylus': actuator})
+        close.assert_called_once_with()
+
+    def test_stopping_the_backend_closes_the_actuator(self):
+        backend = self.build('stylus')
+        backend.act.close = mock.Mock()
+        backend.stop()
+        backend.act.close.assert_called_once_with()
 
     def test_handle_reports_view_only_error_to_gateway(self):
         backend = self.build('none', 'camera')

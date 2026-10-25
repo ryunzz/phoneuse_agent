@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 import sys
 import threading
@@ -72,14 +73,15 @@ def mirroring_actuator():
 
 
 def stylus_actuator():
-    """Printer-driven stylus. Hardware workstream: stylus.py with dispatch(action, frame=metadata) -> receipt."""
-    try:
-        import stylus
-    except ImportError:
-        raise ValueError('Stylus backend needs stylus.py with dispatch(action, frame=metadata) -> receipt (see docs/PLAN.md)') from None
+    """Printer-driven stylus (controller/rig.py). The printer hangs off another machine, so STYLUS_COMMAND starts
+    `python3 -m controller.rig serve` there, e.g. over SSH; unset, it runs on this machine."""
+    from controller.rig import StylusLink
+    command = shlex.split(os.environ.get('STYLUS_COMMAND', '')) or [sys.executable, '-m', 'controller.rig', 'serve']
+    link = StylusLink.start(command, cwd=ROOT)
 
     def act(action, frame):
-        return stylus.dispatch(action, frame=frame)
+        return link.act(action, frame)
+    act.close = link.close
     return act
 
 
@@ -108,7 +110,11 @@ class RigBackend:
         return self.act(action, metadata)
 
     def stop(self):
-        self.screen.stop()
+        try:
+            self.screen.stop()
+        finally:
+            if hasattr(self.act, 'close'):
+                self.act.close()
 
 
 def build_backend(backend, screen=None, camera_device=None, screens=SCREENS, actuators=ACTUATORS):
@@ -128,8 +134,13 @@ def build_backend(backend, screen=None, camera_device=None, screens=SCREENS, act
     if camera_device and screen != 'camera':
         raise ValueError('--camera-device needs --screen camera')
     act = actuators[backend]()
-    source = screens[screen](camera_device)
-    source.start()
+    try:
+        source = screens[screen](camera_device)
+        source.start()
+    except BaseException:
+        if hasattr(act, 'close'):   # don't leave the stylus controller holding the printer
+            act.close()
+        raise
     return RigBackend(f'{backend}+{screen}', source, act)
 
 

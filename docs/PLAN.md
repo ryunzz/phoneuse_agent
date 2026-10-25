@@ -8,7 +8,7 @@ We are building a **VLM (vision-language model) for phones** and selling access 
 
 1. A developer gets an API key from us (`pu_…`). For now there's one key, issued with `bun run admin create-key`. Self-serve signup isn't planned yet.
 2. They add our **remote MCP server** to Claude (Claude Code, Claude Desktop, or the MCP directory) by passing the URL `https://<gateway>/mcp` and the header `Authorization: Bearer pu_…`. There's nothing to install locally.
-3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone, iPhone Mirroring and the stylus robot (the Prusa printer harness).
+3. The gateway sends their tool calls to one of **our hardware rigs**. A rig is a Mac with a phone and iPhone Mirroring, plus the stylus robot: a Prusa printer driven by a Linux machine (`controller/`).
 4. Tools: `rigs_list`, `phone_connect(task)`, `phone_screenshot`, `phone_tap`, `phone_scroll`, `phone_type`, `phone_home`, `phone_live_feed`, `phone_task_done(outcome)`, `phone_disconnect`, `usage_get`.
    Every session is recorded as a VLM training episode (before frame, action, reason, after frame) in the `episodes.py` format. Humans label steps at `/review` before anything is exported.
 5. `phone_live_feed` returns a short-lived URL. Opening it shows a live MJPEG view of the phone in any browser.
@@ -57,7 +57,7 @@ A rig counts as online if it polled within the last 40 s. One API key holds a ri
 | --- | --- | --- | --- |
 | `sim` | Bundled screenshots | None (fake) | anyone, for testing |
 | `mirroring` | `PhoneCapture.swift` | `PhoneAction.swift` (Mac input events) | done; needs a live test |
-| `stylus` | `PhoneCapture.swift` or camera (`--screen camera`) | Printer harness: `stylus.dispatch(action, frame=metadata)` | hardware team |
+| `stylus` | `PhoneCapture.swift` (camera frames refused until calibrated) | `controller/rig.py`: screen fractions over `STYLUS_COMMAND` to `controller.rig serve` on the printer machine | built; dry-run tested, needs a live test |
 | `none` | camera | View-only (streams frames for the VLM; actions refused) | — |
 
 ## Work split
@@ -68,7 +68,7 @@ The workstreams are independent once the contracts above are fixed.
 | --- | --- | --- | --- |
 | 1 | **Gateway + hosted MCP** | `gateway/`: API key, token metering + dashboard, rig routing, MCP tools, live feed, deploy | contracts only |
 | 2 | **Rig agent** | `rig_agent.py`: connects the harness + capture to the gateway | contracts only |
-| 3 | **Stylus robot** | Printer harness gains `move_to` and `press`/`swipe`, plus phone→printer calibration (4 corner taps → affine map). Implements `stylus.py` with `dispatch(action, frame=None) -> receipt` (`frame` is the screen metadata the action refers to). | action contract |
+| 3 | **Stylus robot** | `controller/`: serial printer, tap/swipe, phone→printer calibration (`phone.json`), AssistiveTouch Home. Done by hand on hardware; `controller/rig.py` connects it to `rig_agent`. Next: live test, typing, a landing check. | action contract |
 | 4 | **Perception** (optional quality boost) | `phone_find(element)` grounding and a fast "did the tap land?" check, behind a `GROUNDING_PROVIDER` adapter (Gemini first, for the MLH track) | gateway tool shape |
 | 5 | **iPhone task app** | SwiftUI app in `ios/`: tasks, screen-recording import, upload, review status | submission API (#6) |
 | 6 | **Tasks + submissions** | Task catalog, idempotent upload, review queue on the gateway (payouts deferred) | none |
