@@ -43,18 +43,38 @@ struct AttemptView: View {
     private func content(_ attempt: Attempt) -> some View {
         let locked = attempt.submissionId != nil
         return Form {
-            if attempt.phase == .submitted {
-                Section {
-                    Text("The Mac has your recording. Follow the review in My submissions.")
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(attempt.task.targetApp, systemImage: "iphone").capStyle()
+                    Text(attempt.task.title)
+                        .font(Theme.display(30))
+                        .foregroundStyle(Theme.ink)
+                    AttemptProgress(
+                        consented: attempt.consentedAt != nil,
+                        hasVideo: attempt.videoFile != nil || attempt.phase == .submitted,
+                        submitted: attempt.phase == .submitted
+                    )
+                }
+                .padding(.vertical, 6)
+                DisclosureGroup(isExpanded: $showTask) {
+                    StepList(steps: attempt.task.steps)
+                        .padding(.vertical, 4)
+                    Label(attempt.task.evidence, systemImage: "eye")
+                        .font(.callout)
+                        .foregroundStyle(Theme.inkMuted)
+                } label: {
+                    Text("Task brief").foregroundStyle(Theme.ink)
                 }
             }
 
-            Section {
-                DisclosureGroup("Task: \(attempt.task.title)", isExpanded: $showTask) {
-                    ForEach(Array(attempt.task.steps.enumerated()), id: \.offset) { index, step in
-                        Text("\(index + 1). \(step)")
+            if attempt.phase == .submitted {
+                Section {
+                    Label {
+                        Text("The Mac has your recording. Follow the review in My submissions.")
+                            .foregroundStyle(Theme.inkMuted)
+                    } icon: {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.clipAudio)
                     }
-                    Text("Show: \(attempt.task.evidence)").foregroundStyle(.secondary)
                 }
             }
 
@@ -68,7 +88,7 @@ struct AttemptView: View {
                 .disabled(locked)
                 .accessibilityIdentifier("consentToggle")
             } header: {
-                Text("1. Consent")
+                StepHeader(number: 1, title: "Consent")
             } footer: {
                 Text("Screen recordings capture everything on screen, including notifications and other apps. Only the review Mac on your Wi-Fi receives it. Payments are not enabled in this beta.")
             }
@@ -76,70 +96,118 @@ struct AttemptView: View {
             Section {
                 if let url = model.videoURL(for: attempt) {
                     VideoPlayer(player: player)
-                        .frame(height: 360)
+                        .frame(height: 380)
+                        .background(Color.black)
                         .listRowInsets(EdgeInsets())
                         .onAppear { if player == nil { player = AVPlayer(url: url) } }
                         .onChange(of: url) { _, newURL in player = AVPlayer(url: newURL) }
                     if let seconds = attempt.durationSeconds {
-                        Text("Length: \(Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond)))")
-                            .foregroundStyle(.secondary)
+                        LabeledContent("Length") {
+                            Text(Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond)))
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(Theme.playhead)
+                        }
                     }
                     if !locked {
-                        PhotosPicker("Replace recording", selection: $pickerItem, matching: .videos, photoLibrary: .shared())
-                        Button("Remove recording", role: .destructive) {
+                        PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
+                            Label("Replace recording", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        Button(role: .destructive) {
                             player = nil
                             model.removeVideo(attemptID)
+                        } label: {
+                            Label("Remove recording", systemImage: "trash")
                         }
+                        .tint(Theme.rec)
                     }
                 } else if attempt.phase != .submitted {
                     PhotosPicker(selection: $pickerItem, matching: .videos, photoLibrary: .shared()) {
-                        Label("Choose screen recording", systemImage: "video.badge.plus")
-                            .font(.headline)
+                        VStack(spacing: 8) {
+                            Image(systemName: "video.badge.plus")
+                                .font(.system(size: 30))
+                            Text("Choose screen recording").font(.headline)
+                            Text("From your Photos library")
+                                .font(Theme.meta)
+                                .foregroundStyle(Theme.inkFaint)
+                        }
+                        .foregroundStyle(Theme.playhead)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 26)
+                        .background(Theme.panel000, in: RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Theme.playhead.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 4)
                     .accessibilityIdentifier("chooseRecording")
-                    RecordingHowTo()
+                    DisclosureGroup("How to record") {
+                        RecordingHowTo()
+                            .padding(.vertical, 4)
+                    }
                 }
                 if isImporting { ProgressView("Preparing video…") }
-                if let importError { Text(importError).foregroundStyle(.red) }
+                if let importError {
+                    Label(importError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.rec)
+                }
             } header: {
-                Text("2. Recording")
+                StepHeader(number: 2, title: "Recording")
             } footer: {
                 Text("Trim unrelated parts in Photos (Edit) before choosing the video.")
             }
 
-            Section("3. How did it go?") {
-                Picker("Result", selection: Binding(
-                    get: { attempt.outcome },
-                    set: { value in model.update(attemptID) { $0.outcome = value } }
-                )) {
-                    ForEach(Outcome.allCases) { outcome in
-                        Text(outcome.label).tag(outcome)
+            Section {
+                ForEach(Outcome.allCases) { outcome in
+                    let selected = attempt.outcome == outcome
+                    Button {
+                        model.update(attemptID) { $0.outcome = outcome }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: outcome.symbol)
+                                .font(.title3)
+                                .foregroundStyle(outcome.color)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(outcome.label).foregroundStyle(Theme.ink)
+                                Text(outcome.detail).font(.footnote).foregroundStyle(Theme.inkFaint)
+                            }
+                            Spacer()
+                            Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(selected ? Theme.playhead : Theme.line)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(locked)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                .disabled(locked)
-                Text(attempt.outcome.detail).font(.footnote).foregroundStyle(.secondary)
                 TextField("Note for the reviewer (optional)", text: Binding(
                     get: { attempt.note },
                     set: { value in model.update(attemptID) { $0.note = String(value.prefix(2000)) } }
                 ), axis: .vertical)
                 .lineLimit(2...6)
                 .disabled(locked)
+            } header: {
+                StepHeader(number: 3, title: "How did it go?")
             }
 
             if attempt.phase != .submitted {
                 Section {
-                    Button("Abandon this attempt", role: .destructive) { confirmAbandon = true }
-                        .disabled(attempt.phase == .uploading)
+                    Button(role: .destructive) { confirmAbandon = true } label: {
+                        Label("Abandon this attempt", systemImage: "xmark.bin")
+                    }
+                    .tint(Theme.rec)
+                    .disabled(attempt.phase == .uploading)
                 }
             }
         }
+        .themedList()
         .safeAreaInset(edge: .bottom) {
             submitBar(attempt)
                 .padding(.horizontal)
-                .padding(.vertical, 10)
-                .background(.bar)
+                .padding(.vertical, 12)
+                .background(Theme.panel000)
+                .overlay(alignment: .top) { Theme.line.frame(height: 1) }
         }
         .navigationTitle("Your attempt")
         .navigationBarTitleDisplayMode(.inline)
@@ -165,45 +233,46 @@ struct AttemptView: View {
             case .submitted:
                 Label("Submitted. Waiting for review.", systemImage: "checkmark.seal.fill")
                     .font(.headline)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Theme.clipAudio)
                     .accessibilityIdentifier("submittedBanner")
-                Button {
-                    dismiss()
-                } label: {
-                    Text("Done").font(.headline).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                Button("Done") { dismiss() }
+                    .buttonStyle(PlayheadButtonStyle())
             case .uploading:
-                Text("Uploading to the review Mac…")
-                ProgressView(value: model.uploadProgress[attemptID] ?? 0)
-                Text("Keep the app open until it finishes.").font(.footnote).foregroundStyle(.secondary)
+                let progress = model.uploadProgress[attemptID] ?? 0
+                HStack {
+                    Text("Uploading to the review Mac").capStyle()
+                    Spacer()
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(.subheadline, design: .monospaced))
+                        .foregroundStyle(Theme.playhead)
+                }
+                ProgressView(value: progress)
+                Text("Keep the app open until it finishes.").font(.footnote).foregroundStyle(Theme.inkFaint)
             case .failed:
                 Label(attempt.lastError ?? "The upload failed.", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.rec)
                     .lineLimit(4)
-                submitButton(attempt, title: "Retry upload")
+                submitButton(attempt, title: "Retry upload", systemImage: "arrow.clockwise")
             default:
                 if attempt.consentedAt == nil {
-                    Text("Agree to the consent first.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Agree to the consent first.").font(Theme.meta).foregroundStyle(Theme.inkFaint)
                 } else if attempt.videoFile == nil {
-                    Text("Choose your screen recording first.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Choose your screen recording first.").font(Theme.meta).foregroundStyle(Theme.inkFaint)
                 }
-                submitButton(attempt, title: "Submit recording")
+                submitButton(attempt, title: "Submit recording", systemImage: "arrow.up")
             }
         }
     }
 
-    private func submitButton(_ attempt: Attempt, title: String) -> some View {
+    private func submitButton(_ attempt: Attempt, title: String, systemImage: String) -> some View {
         Button {
             player?.pause()
             Task { await model.submit(attemptID) }
         } label: {
-            Text(title).font(.headline).frame(maxWidth: .infinity)
+            Label(title, systemImage: systemImage)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(PlayheadButtonStyle())
         .disabled(attempt.consentedAt == nil || attempt.videoFile == nil || model.pairing == nil)
         .accessibilityIdentifier("submitButton")
     }
@@ -228,5 +297,51 @@ struct AttemptView: View {
         } catch {
             importError = "Couldn't load the video: \(error.localizedDescription)"
         }
+    }
+}
+
+/// Section header numbered like a timecode: "01  Consent".
+struct StepHeader: View {
+    let number: Int
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(String(format: "%02d", number))
+                .font(.system(.caption, design: .monospaced).weight(.medium))
+                .foregroundStyle(Theme.playhead)
+            Text(title).capStyle()
+        }
+    }
+}
+
+/// Consent, recording and submit as three segments that fill in.
+struct AttemptProgress: View {
+    let consented: Bool
+    let hasVideo: Bool
+    let submitted: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            segment("Consent", done: consented)
+            segment("Recording", done: hasVideo)
+            segment("Submitted", done: submitted)
+        }
+    }
+
+    private func segment(_ title: String, done: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Rectangle()
+                .fill(done ? Theme.playhead : Theme.line)
+                .frame(height: 3)
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.8)
+                .textCase(.uppercase)
+                .foregroundStyle(done ? Theme.ink : Theme.inkFaint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(done ? "Done" : "Not done")
     }
 }
