@@ -5,10 +5,16 @@ struct PhoneTasksApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        Theme.applyAppearance()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(model)
+                .preferredColorScheme(.dark)
+                .tint(Theme.playhead)
                 .task { await model.refresh() }
                 .onChange(of: scenePhase) { _, phase in
                     // Coming back from recording in another app, or from the Mac's review.
@@ -47,8 +53,8 @@ struct ConnectionBanner: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Not connected", systemImage: "wifi.exclamationmark")
                         .font(.headline)
-                        .foregroundStyle(.red)
-                    Text(error).font(.callout)
+                        .foregroundStyle(Theme.rec)
+                    Text(error).font(.callout).foregroundStyle(Theme.inkMuted)
                     Button("Try again") { Task { await model.refresh() } }
                         .buttonStyle(.bordered)
                 }
