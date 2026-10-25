@@ -10,7 +10,7 @@ import { RigError, type Frame, type RigHub } from './rigs.js';
 import { PhoneSession } from './session.js';
 import type { TraceRecorder } from './traces.js';
 import { estimateImageTokens, estimateTextTokens, jpegSize, type UsageLedger } from './usage.js';
-import { VlaError, type VlaProvider } from './vla.js';
+import { VlmError, type VlmProvider } from './vlm.js';
 
 export interface McpContext {
   readonly keyId: string;
@@ -22,7 +22,7 @@ export interface McpContext {
   readonly traces: TraceRecorder | null;
   readonly guards: Guards;
   readonly asks: Asks;
-  readonly vla: VlaProvider | null;
+  readonly vlm: VlmProvider | null;
 }
 
 const INSTRUCTIONS = `Phone Use drives a real phone on a hardware rig.
@@ -36,7 +36,7 @@ Sessions are recorded (screens, actions, typed text, reasons) to train our phone
 
 const coordinate = z.number().min(0).max(1);
 const reason = z.string().max(500).optional().describe('Briefly, what you are doing and why (recorded for training).');
-const EXPECTED_ERRORS = [RigError, GuardError, AskError, VlaError];
+const EXPECTED_ERRORS = [RigError, GuardError, AskError, VlmError];
 
 function text(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }] };
@@ -209,7 +209,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'phone_do',
     {
       description:
-        'Hand a short sub-task to our phone VLA model (e.g. "open Settings and search for Wi-Fi"). It looks, acts and repeats on the phone until done or max_steps. ' +
+        'Hand a short sub-task to our phone VLM (e.g. "open Settings and search for Wi-Fi"). It looks, acts and repeats on the phone until done or max_steps. ' +
         'Uses the same action budget and recording as the other tools.',
       inputSchema: {
         instruction: z.string().min(1).max(1000),
@@ -217,7 +217,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
       },
     },
     metered('phone_do', async ({ instruction, max_steps }: { instruction: string; max_steps?: number }) => {
-      if (!ctx.vla) return failure('No VLA model is configured on this gateway (set VLA_PROVIDER). Use the individual phone tools instead.');
+      if (!ctx.vlm) return failure('No VLM is configured on this gateway (set VLM_PROVIDER). Use the individual phone tools instead.');
       const steps: string[] = [];
       const history: { action: PhoneAction }[] = [];
       let last: Frame | null = null;
@@ -225,18 +225,18 @@ export function createMcpServer(ctx: McpContext): McpServer {
         const { frame } = await session.screenshot();
         if (!frame) return failure(`Stopped at step ${step}: no fresh screen from the rig.`);
         last = frame;
-        const decision = await ctx.vla.next({ instruction, image: frame.data, step, history });
+        const decision = await ctx.vlm.next({ instruction, image: frame.data, step, history });
         if (decision.kind === 'done') {
-          return withFrame(`VLA (${ctx.vla.name}) reports ${decision.outcome} after ${steps.length} actions.${decision.note ? ` ${decision.note}` : ''}\n${steps.join('\n')}`, last);
+          return withFrame(`VLM (${ctx.vlm.name}) reports ${decision.outcome} after ${steps.length} actions.${decision.note ? ` ${decision.note}` : ''}\n${steps.join('\n')}`, last);
         }
-        const outcome = await session.act(decision.action, `vla:${ctx.vla.name} ${decision.reason ?? ''}`.trim());
-        ctx.usage.record({ keyId: ctx.keyId, tool: 'vla_step', rigId: outcome.rigId, ok: outcome.ok, durationMs: 0, images: 0, imageBytes: 0, imageTokens: 0, tokensIn: 0, tokensOut: 0 });
+        const outcome = await session.act(decision.action, `vlm:${ctx.vlm.name} ${decision.reason ?? ''}`.trim());
+        ctx.usage.record({ keyId: ctx.keyId, tool: 'vlm_step', rigId: outcome.rigId, ok: outcome.ok, durationMs: 0, images: 0, imageBytes: 0, imageTokens: 0, tokensIn: 0, tokensOut: 0 });
         steps.push(`${step}. ${JSON.stringify(decision.action)} -> ${outcome.ok ? 'ok' : `failed: ${outcome.error}`}`);
-        if (!outcome.ok) return failure(`VLA action failed; stopped.\n${steps.join('\n')}`);
+        if (!outcome.ok) return failure(`VLM action failed; stopped.\n${steps.join('\n')}`);
         history.push({ action: decision.action });
         last = outcome.frame;
       }
-      return withFrame(`VLA used all ${max_steps ?? 10} steps without finishing.\n${steps.join('\n')}`, last);
+      return withFrame(`VLM used all ${max_steps ?? 10} steps without finishing.\n${steps.join('\n')}`, last);
     }),
   );
 

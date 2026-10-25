@@ -1,15 +1,18 @@
-import { loadConfig } from './config.js';
+import { lanAddress, loadConfig } from './config.js';
 import { JsonFileStore } from './store.js';
 
 const USAGE = `Usage:
   bun run admin create-key <name>    Issue an API key (shown once)
   bun run admin create-rig <name>    Register a rig and issue its token (shown once)
+  bun run admin create-contributor <name>   Issue an iPhone app pairing string (shown once)
   bun run admin revoke-key <key_id>
+  bun run admin revoke-contributor <contributor_id>
   bun run admin list`;
 
 function main(argv: readonly string[]): number {
   const [command, ...rest] = argv;
-  const store = new JsonFileStore(`${loadConfig().dataDir}/store.json`);
+  const config = loadConfig();
+  const store = new JsonFileStore(`${config.dataDir}/store.json`);
   const name = rest.join(' ');
   switch (command) {
     case 'create-key': {
@@ -22,12 +25,27 @@ function main(argv: readonly string[]): number {
       console.info(`Registered ${record.id} (${record.name})\nRig token: ${secret}\nRun: GATEWAY_URL=... RIG_TOKEN=... uv run rig_agent.py`);
       return 0;
     }
+    case 'create-contributor': {
+      const { record, secret } = store.createContributor(name);
+      const host = lanAddress() ?? '<mac-ip>';
+      console.info(`Created ${record.id} (${record.name})
+Pairing string (paste into the app's Settings):
+  http://${host}:${config.port}#${secret}
+Simulator on this Mac:
+  http://127.0.0.1:${config.port}#${secret}
+Start the gateway with "bun run phone" so the phone can reach it. Store this now; it cannot be shown again.`);
+      return 0;
+    }
+    case 'revoke-contributor':
+      console.info(`Revoked ${store.revokeContributor(name).id}`);
+      return 0;
     case 'revoke-key':
       console.info(`Revoked ${store.revokeKey(name).id}`);
       return 0;
     case 'list':
       for (const key of store.listKeys()) console.info(`key ${key.id}  ${key.name}${key.revoked ? '  (revoked)' : ''}`);
       for (const rig of store.listRigs()) console.info(`rig ${rig.id}  ${rig.name}`);
+      for (const person of store.listContributors()) console.info(`contributor ${person.id}  ${person.name}${person.revoked ? '  (revoked)' : ''}`);
       return 0;
     default:
       console.error(USAGE);

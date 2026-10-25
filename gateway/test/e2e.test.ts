@@ -11,7 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { DEFAULT_LIMITS, type Config } from '../src/config.js';
 import { createGateway, type Gateway } from '../src/http.js';
 import { JsonFileStore } from '../src/store.js';
-import { ScriptedVla } from '../src/vla.js';
+import { ScriptedVlm } from '../src/vlm.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -44,7 +44,7 @@ before(async () => {
   apiKey = store.createKey('e2e').secret;
   const rigToken = store.createRig('sim rig').secret;
   const config: Config = { host: '127.0.0.1', port: 0, publicUrl: 'http://placeholder', dataDir, traceDir: path.join(dataDir, 'demonstrations'), reviewToken: 'r'.repeat(32), limits: { ...DEFAULT_LIMITS, settleMs: 100 } };
-  gateway = createGateway(config, store, new ScriptedVla([
+  gateway = createGateway(config, store, new ScriptedVlm([
     { kind: 'act', action: { type: 'tap', x: 0.86, y: 0.88 }, reason: 'open Settings' },
     { kind: 'done', outcome: 'success', note: 'Settings open' },
   ]));
@@ -143,7 +143,7 @@ test('a task session is recorded as a training episode', async () => {
   await client.close();
 });
 
-test('guards, ask_user over the live link, operator stop, and phone_do via the VLA', async () => {
+test('guards, ask_user over the live link, operator stop, and phone_do via the VLM', async () => {
   const client = await connect(apiKey);
   const call = (name: string, args: Record<string, unknown> = {}) => client.callTool({ name, arguments: args });
   const body = (result: Awaited<ReturnType<typeof call>>) => JSON.stringify(result.content);
@@ -169,7 +169,7 @@ test('guards, ask_user over the live link, operator stop, and phone_do via the V
   assert.equal(ok.status, 200);
   assert.match(body(await asking), /answered: 482913/);
 
-  // phone_do runs the VLA loop through the same guarded, recorded path.
+  // phone_do runs the VLM loop through the same guarded, recorded path.
   const did = await call('phone_do', { instruction: 'open Settings', max_steps: 5 });
   assert.ok(!did.isError, body(did));
   assert.match(body(did), /reports success after 1 actions/);

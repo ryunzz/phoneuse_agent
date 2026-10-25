@@ -1,0 +1,83 @@
+[
+  {
+    "id": "translate-mandarin",
+    "version": 1,
+    "title": "Change the translation language",
+    "summary": "Set Apple Translate to Mandarin Chinese and translate a short phrase.",
+    "targetApp": "Translate",
+    "estimatedMinutes": 2,
+    "startingConditions": "Apple Translate is open on its translation screen.",
+    "steps": [
+      "Tap the target language button.",
+      "Choose Chinese (Mandarin, Simplified).",
+      "Type “Where is the train station?” and translate it."
+    ],
+    "evidence": "The recording shows the language being selected and the final translated result.",
+    "notes": "Labels differ by iOS version and region. If the option is missing, submit the attempt as blocked."
+  },
+  {
+    "id": "larger-text",
+    "version": 1,
+    "title": "Make the text bigger",
+    "summary": "Increase the system text size so menus are easier to read.",
+    "targetApp": "Settings",
+    "estimatedMinutes": 2,
+    "startingConditions": "Start on the Home Screen. Note the current text size so you can restore it afterwards.",
+    "steps": [
+      "Open Settings → Display & Brightness → Text Size.",
+      "Drag the slider two steps to the right.",
+      "Go back and show that menu text is now larger."
+    ],
+    "evidence": "The recording shows the slider moving and larger text in Settings afterwards.",
+    "notes": "Put the slider back afterwards; that does not need to be recorded."
+  },
+  {
+    "id": "morning-alarm",
+    "version": 1,
+    "title": "Set a morning alarm",
+    "summary": "Create an 8:00 AM alarm that repeats on weekdays.",
+    "targetApp": "Clock",
+    "estimatedMinutes": 3,
+    "startingConditions": "Start on the Home Screen.",
+    "steps": [
+      "Open Clock → Alarms and tap +.",
+      "Set 8:00 AM.",
+      "Under Repeat choose Monday to Friday.",
+      "Save, and show the new alarm in the list."
+    ],
+    "evidence": "The recording shows the time, the repeat days, and the saved alarm.",
+    "notes": "Delete the alarm afterwards if you do not want it."
+  },
+  {
+    "id": "flashlight",
+    "version": 1,
+    "title": "Turn the flashlight on and off",
+    "summary": "Use Control Center to switch the flashlight on, then off again.",
+    "targetApp": "Control Center",
+    "estimatedMinutes": 1,
+    "startingConditions": "Start on the Home Screen with the flashlight off.",
+    "steps": [
+      "Swipe down from the top-right corner to open Control Center.",
+      "Tap the flashlight button to turn it on.",
+      "Tap it again to turn it off, then close Control Center."
+    ],
+    "evidence": "The recording shows the flashlight button switching on and off.",
+    "notes": "If the flashlight is not in Control Center, submit the attempt as blocked."
+  },
+  {
+    "id": "silence-unknown-callers",
+    "version": 1,
+    "title": "Silence unknown callers",
+    "summary": "Turn on the setting that sends calls from unknown numbers to voicemail.",
+    "targetApp": "Settings",
+    "estimatedMinutes": 2,
+    "startingConditions": "Start on the Home Screen with Silence Unknown Callers off.",
+    "steps": [
+      "Open Settings → Apps → Phone (or Settings → Phone on older iOS).",
+      "Open Silence Unknown Callers.",
+      "Turn the switch on."
+    ],
+    "evidence": "The recording shows the switch turning on.",
+    "notes": "The menu location changed in recent iOS versions. Turn it back off afterwards if you want."
+  }
+]

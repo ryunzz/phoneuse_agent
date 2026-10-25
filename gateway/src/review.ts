@@ -428,7 +428,7 @@ const PAGE_HTML = `
 <div class="project"><span>Project: <b>Episodes.prproj</b></span><span id="msg">Enter the review token.</span><span class="acts"><input id="reviewer" maxlength="200" placeholder="Reviewer name" aria-label="Reviewer name" autocomplete="name" hidden><button class="linkbtn" id="signout" type="button" hidden>change token</button></span></div>
 <div class="stats" id="stats" hidden aria-label="Review statistics"></div>
 <section class="gate" id="gate">
-  <div><h1>Review episodes</h1><p>label agent steps for the VLA</p>
+  <div><h1>Review episodes</h1><p>label agent steps for the VLM</p>
   <form id="tokenform"><label class="sr" for="token" hidden>Review token</label><input id="token" type="password" autocomplete="off" placeholder="REVIEW_TOKEN" aria-label="Review token"><button type="submit">Load</button></form></div>
 </section>
 <main id="workspace" hidden>

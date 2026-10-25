@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { createReadStream, createWriteStream, rmSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { commandResultSchema } from './actions.js';
@@ -9,18 +11,21 @@ import { landingPage } from './landing.js';
 import { AskError, Asks } from './asks.js';
 import { Guards } from './guards.js';
 import { createMcpServer } from './mcp.js';
-import { createVlaProvider, type VlaProvider } from './vla.js';
+import { createVlmProvider, type VlmProvider } from './vlm.js';
 import { PAGE_CSP } from './theme.js';
 import { RateLimiter } from './ratelimit.js';
 import { createReviewApi, REVIEW_CSP, ReviewError, reviewPage } from './review.js';
 import { RigHub } from './rigs.js';
 import { TraceRecorder } from './traces.js';
 import type { Store } from './store.js';
+import { SUBMISSION_REVIEW_CSP, submissionReviewPage } from './submission-review.js';
+import { createSubmissionSchema, loadTasks, reviewSchema, SubmissionError, SubmissionStore, VIDEO_TYPES } from './submissions.js';
 import { UsageLedger } from './usage.js';
 
 export interface Gateway {
   readonly server: Server;
   readonly hub: RigHub;
+  readonly submissions: SubmissionStore;
 }
 
 class HttpError extends Error {
@@ -62,12 +67,104 @@ async function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
   }
 }
 
-export function createGateway(config: Config, store: Store, vla: VlaProvider | null = createVlaProvider()): Gateway {
+/** Streams a request body to disk, hashing as it goes, so large videos never sit in memory. */
+function streamToFile(req: IncomingMessage, file: string, limit: number): Promise<{ bytes: number; sha256: string }> {
+  return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (declared > limit) return reject(new HttpError(413, 'Recording is too large'));
+    const hash = createHash('sha256');
+    const out = createWriteStream(file, { mode: 0o600 });
+    let bytes = 0;
+    let failed = false;
+    const fail = (error: unknown) => {
+      if (failed) return;
+      failed = true;
+      out.destroy();
+      rmSync(file, { force: true });
+      reject(error);
+    };
+    req.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > limit) {
+        fail(new HttpError(413, 'Recording is too large'));
+        req.destroy();
+        return;
+      }
+      hash.update(chunk);
+      if (!out.write(chunk)) {
+        req.pause();
+        out.once('drain', () => req.resume());
+      }
+    });
+    req.on('aborted', () => fail(new HttpError(400, 'Upload interrupted')));
+    req.on('error', fail);
+    out.on('error', fail);
+    req.on('end', () => {
+      if (failed) return;
+      if (declared && bytes !== declared) return fail(new HttpError(400, 'Upload interrupted'));
+      out.end(() => resolve({ bytes, sha256: hash.digest('hex') }));
+    });
+  });
+}
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Review routes answer only on the Mac itself, even when the gateway listens on the LAN for
+ * the iPhone app. The Host check stops DNS rebinding; the Origin and JSON checks stop other
+ * sites in the reviewer's browser from posting decisions.
+ */
+function requireLocalAdmin(req: IncomingMessage, write: boolean): void {
+  const host = req.headers.host ?? '';
+  if (!LOOPBACK.has(req.socket.remoteAddress ?? '') || !LOCAL_HOSTNAMES.has(host.replace(/:\d+$/, ''))) {
+    throw new HttpError(403, 'Review is only available on the Mac running the gateway (http://127.0.0.1)');
+  }
+  if (!write) return;
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') {
+    let originHost = '';
+    try {
+      originHost = new URL(origin).host;
+    } catch {}
+    if (originHost !== host) throw new HttpError(403, 'Cross-site request refused');
+  } else if (origin === 'null') throw new HttpError(403, 'Cross-site request refused');
+  if (String(req.headers['content-type'] ?? '').split(';')[0].trim() !== 'application/json') {
+    throw new HttpError(415, 'Use application/json');
+  }
+}
+
+/** Serves a stored video with single-range support so browsers can seek. */
+function sendVideo(req: IncomingMessage, res: ServerResponse, file: string, contentType: string): void {
+  const size = statSync(file).size;
+  const headers = { 'Content-Type': contentType, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+  if (range && (range[1] || range[2])) {
+    let start = range[1] ? Number(range[1]) : Math.max(size - Number(range[2]), 0);
+    let end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` }).end();
+      return;
+    }
+    start = Math.max(start, 0);
+    end = Math.max(end, start);
+    res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) });
+    createReadStream(file, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { ...headers, 'Content-Length': String(size) });
+  createReadStream(file).pipe(res);
+}
+
+export function createGateway(config: Config, store: Store, vlm: VlmProvider | null = createVlmProvider()): Gateway {
   const { limits } = config;
   const hub = new RigHub(() => new Map(store.listRigs().map((rig) => [rig.id, rig.name])), limits);
   const usage = new UsageLedger(`${config.dataDir}/usage.jsonl`);
   const live = new LiveViews(limits.liveTokenMs);
   const limiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const submissions = new SubmissionStore(`${config.dataDir}/submissions`, loadTasks(config.tasksFile));
+  const contributorLimiter = new RateLimiter(limits.mcpRequestsPerMinute, 60_000);
+  const enrollLimiter = new RateLimiter(10, 60_000);
   const traces = config.traceDir ? new TraceRecorder(config.traceDir) : null;
   const guards = new Guards(limits);
   const asks = new Asks(limits.askTtlMs);
@@ -87,11 +184,19 @@ export function createGateway(config: Config, store: Store, vla: VlaProvider | n
     return rig.id;
   };
 
+  const requireContributor = (req: IncomingMessage): string => {
+    const secret = bearerToken(req, 'ct');
+    const person = secret ? store.findContributorBySecret(secret) : null;
+    if (!person) throw new HttpError(401, 'Missing or invalid contributor key (pair the app again)');
+    if (!contributorLimiter.allow(person.id)) throw new HttpError(429, 'Rate limit exceeded; slow down');
+    return person.id;
+  };
+
   const handleMcp = async (req: IncomingMessage, res: ServerResponse, keyId: string): Promise<void> => {
     if (req.method !== 'POST') return send(res, 405, { error: 'This MCP endpoint is stateless; use POST' });
     const body = await readJson(req, limits.maxJsonBytes);
     // Stateless Streamable HTTP: fresh server per request; rig leases live on the API key.
-    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces, guards, asks, vla });
+    const server = createMcpServer({ keyId, hub, usage, live, publicUrl: config.publicUrl, limits, traces, guards, asks, vlm });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();
@@ -196,6 +301,81 @@ export function createGateway(config: Config, store: Store, vla: VlaProvider | n
       return send(res, 200, { seq: frame.seq });
     }
 
+    if (pathname === '/c/v1/enroll' && req.method === 'POST') {
+      if (!config.openEnrollment) throw new HttpError(403, 'Enrollment is closed; pair with a pairing string from "bun run admin create-contributor"');
+      if (!enrollLimiter.allow(req.socket.remoteAddress ?? 'unknown')) throw new HttpError(429, 'Too many enrollments; wait a minute');
+      const body = (await readJson(req, limits.maxJsonBytes)) as { name?: unknown };
+      const name = typeof body?.name === 'string' ? body.name.trim() : '';
+      if (!name || name.length > 100) throw new HttpError(400, 'name must be 1-100 characters');
+      const { record, secret } = store.createContributor(name);
+      return send(res, 201, { contributorId: record.id, key: secret });
+    }
+    if (pathname === '/c/v1/tasks' && req.method === 'GET') {
+      requireContributor(req);
+      return send(res, 200, { tasks: submissions.listTasks() });
+    }
+    if (pathname === '/c/v1/submissions' && req.method === 'GET') {
+      return send(res, 200, { submissions: submissions.forContributor(requireContributor(req)) });
+    }
+    if (pathname === '/c/v1/submissions' && req.method === 'POST') {
+      const contributorId = requireContributor(req);
+      const parsed = createSubmissionSchema.safeParse(await readJson(req, limits.maxJsonBytes));
+      if (!parsed.success) throw new HttpError(400, `Invalid submission: ${parsed.error.issues[0]?.message ?? 'bad payload'}`);
+      const { record, created } = submissions.create(contributorId, parsed.data);
+      return send(res, created ? 201 : 200, record);
+    }
+    const subMatch = /^\/c\/v1\/submissions\/(sub_[0-9a-f]{16})\/(media|complete)$/.exec(pathname);
+    if (subMatch && subMatch[2] === 'media' && req.method === 'PUT') {
+      const contributorId = requireContributor(req);
+      const contentType = String(req.headers['content-type'] ?? '').split(';')[0].trim();
+      if (!VIDEO_TYPES[contentType]) throw new HttpError(415, 'Recordings must be video/mp4 or video/quicktime');
+      const temp = submissions.uploadTarget(subMatch[1], contributorId);
+      const { bytes, sha256 } = await streamToFile(req, temp, limits.maxVideoBytes);
+      if (bytes === 0) {
+        rmSync(temp, { force: true });
+        throw new HttpError(400, 'Empty recording');
+      }
+      const record = submissions.attachMedia(subMatch[1], contributorId, temp, contentType, bytes, sha256);
+      return send(res, 200, record);
+    }
+    if (subMatch && subMatch[2] === 'complete' && req.method === 'POST') {
+      const contributorId = requireContributor(req);
+      const body = (await readJson(req, limits.maxJsonBytes)) as { sha256?: unknown };
+      if (typeof body?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(body.sha256)) throw new HttpError(400, 'sha256 is required');
+      return send(res, 200, submissions.complete(subMatch[1], contributorId, body.sha256));
+    }
+
+    if (pathname === '/review/submissions' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      return send(res, 200, submissionReviewPage(), 'text/html; charset=utf-8', {
+        'Content-Security-Policy': SUBMISSION_REVIEW_CSP,
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+      });
+    }
+    if (pathname === '/admin/v1/submissions' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      const contributors = new Map(store.listContributors().map((person) => [person.id, person.name]));
+      const queue = submissions.queue();
+      return send(res, 200, {
+        stats: queue.stats,
+        tasks: submissions.listTasks(),
+        submissions: queue.submissions.map((record) => ({ ...record, contributorName: contributors.get(record.contributorId) ?? record.contributorId })),
+      });
+    }
+    const adminMatch = /^\/admin\/v1\/submissions\/(sub_[0-9a-f]{16})\/(media|review)$/.exec(pathname);
+    if (adminMatch && adminMatch[2] === 'media' && req.method === 'GET') {
+      requireLocalAdmin(req, false);
+      const record = submissions.get(adminMatch[1]);
+      return sendVideo(req, res, submissions.mediaPath(record), record.media!.contentType);
+    }
+    if (adminMatch && adminMatch[2] === 'review' && req.method === 'POST') {
+      requireLocalAdmin(req, true);
+      const parsed = reviewSchema.safeParse(await readJson(req, limits.maxJsonBytes));
+      if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid review');
+      return send(res, 200, submissions.review(adminMatch[1], parsed.data));
+    }
+
     const liveMatch = /^\/live\/([\w-]{20,64})(\/stream|\/frame\.jpg)?$/.exec(pathname);
     if (liveMatch && req.method === 'GET') {
       const view = live.resolve(liveMatch[1]);
@@ -225,13 +405,13 @@ export function createGateway(config: Config, store: Store, vla: VlaProvider | n
         res.destroy();
         return;
       }
-      if (error instanceof HttpError) return send(res, error.status, { error: error.message });
+      if (error instanceof HttpError || error instanceof SubmissionError) return send(res, error.status, { error: error.message });
       console.error('[http] unhandled error', error);
       send(res, 500, { error: 'Internal error' });
     });
   });
-  // Rig long polls hold requests open; keep sockets alive past the default timeouts.
-  server.requestTimeout = 60_000;
+  // Rig long polls hold requests open, and recordings upload over Wi-Fi; allow long requests.
+  server.requestTimeout = 15 * 60_000;
   server.headersTimeout = 15_000;
-  return { server, hub };
+  return { server, hub, submissions };
 }

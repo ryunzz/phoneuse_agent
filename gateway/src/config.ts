@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 
 export interface Config {
@@ -6,6 +7,10 @@ export interface Config {
   /** Base URL clients use to reach this gateway; live-feed links are built from it. */
   readonly publicUrl: string;
   readonly dataDir: string;
+  /** Contributor task catalog; defaults to gateway/tasks.json. */
+  readonly tasksFile?: string;
+  /** Let phones on the LAN get their own contributor key from POST /c/v1/enroll (trusted Wi-Fi only). */
+  readonly openEnrollment?: boolean;
   /** Where gateway sessions are recorded as episodes (episodes.py format). Null disables recording. */
   readonly traceDir: string | null;
   /** Bearer token for the episode review page/API. Null disables review. */
@@ -22,6 +27,7 @@ export interface Limits {
   readonly liveTokenMs: number;
   readonly maxFrameBytes: number;
   readonly maxJsonBytes: number;
+  readonly maxVideoBytes: number;
   /** An agent must have looked at the screen this recently to act. */
   readonly observationMaxAgeMs: number;
   readonly actionsPerTask: number;
@@ -39,6 +45,7 @@ export const DEFAULT_LIMITS: Limits = {
   liveTokenMs: 30 * 60_000,
   maxFrameBytes: 2_000_000,
   maxJsonBytes: 1_000_000,
+  maxVideoBytes: 1_500_000_000,
   observationMaxAgeMs: 120_000,
   actionsPerTask: 50,
   askTtlMs: 10 * 60_000,
@@ -63,8 +70,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     publicUrl,
     dataDir,
+    tasksFile: env.TASKS_FILE ? path.resolve(env.TASKS_FILE) : undefined,
+    openEnrollment: env.ENROLLMENT === 'open',
     traceDir: env.TRACES === 'off' ? null : path.resolve(env.TRACE_DIR ?? path.join(dataDir, 'demonstrations')),
     reviewToken,
     limits: DEFAULT_LIMITS,
   };
+}
+
+/** The Mac's Wi-Fi address, which the iPhone app uses to reach this gateway. It can change on reconnect. */
+export function lanAddress(): string | null {
+  return lanAddresses()[0] ?? null;
+}
+
+/** Every IPv4 address the phone might reach: Wi-Fi first, then others such as iPhone USB tethering. */
+export function lanAddresses(): string[] {
+  const all = networkInterfaces();
+  const ordered = [...(all.en0 ?? []), ...Object.values(all).flat()];
+  const found = ordered.filter((entry) => entry && entry.family === 'IPv4' && !entry.internal).map((entry) => entry!.address);
+  return [...new Set(found)];
 }

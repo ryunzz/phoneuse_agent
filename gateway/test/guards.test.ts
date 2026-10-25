@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 import { AskError, Asks } from '../src/asks.js';
 import { GuardError, Guards } from '../src/guards.js';
-import { HttpVla, parseDecision, VlaError } from '../src/vla.js';
+import { HttpVlm, parseDecision, VlmError } from '../src/vlm.js';
 
 function guards(clock = { t: 0 }) {
   return { g: new Guards({ observationMaxAgeMs: 1000, actionsPerTask: 2 }, () => clock.t), clock };
@@ -56,10 +56,10 @@ test('ask_user answers resolve waiters; validation by kind; isolation by key', a
   assert.equal(await asks.wait('k1', asks.create('k1', 'ok?', 'confirm').id, 10), null, 'times out with null');
 });
 
-test('VLA decisions are validated; HTTP adapter speaks the documented contract', async () => {
+test('VLM decisions are validated; HTTP adapter speaks the documented contract', async () => {
   assert.deepEqual(parseDecision({ action: { type: 'tap', x: 0.5, y: 0.5 } }), { kind: 'act', action: { type: 'tap', x: 0.5, y: 0.5 }, reason: undefined });
   assert.equal(parseDecision({ done: true, outcome: 'success' }).kind, 'done');
-  assert.throws(() => parseDecision({ action: { type: 'tap', x: 5, y: 0 } }), VlaError);
+  assert.throws(() => parseDecision({ action: { type: 'tap', x: 5, y: 0 } }), VlmError);
 
   let seen: Record<string, unknown> = {};
   let auth = '';
@@ -72,14 +72,14 @@ test('VLA decisions are validated; HTTP adapter speaks the documented contract',
     },
   });
   try {
-    const vla = new HttpVla(`http://127.0.0.1:${server.port}/act`, 'vla_secret');
-    const decision = await vla.next({ instruction: 'go home', image: Buffer.from('jpeg'), step: 1, history: [] });
+    const vlm = new HttpVlm(`http://127.0.0.1:${server.port}/act`, 'vlm_secret');
+    const decision = await vlm.next({ instruction: 'go home', image: Buffer.from('jpeg'), step: 1, history: [] });
     assert.deepEqual(decision, { kind: 'act', action: { type: 'home' }, reason: 'go home' });
     assert.equal(seen.instruction, 'go home');
     assert.equal(seen.image_jpeg_base64, Buffer.from('jpeg').toString('base64'));
-    assert.equal(auth, 'Bearer vla_secret');
+    assert.equal(auth, 'Bearer vlm_secret');
   } finally {
     server.stop(true);
   }
-  await assert.rejects(new HttpVla('http://127.0.0.1:9/none', null, 500).next({ instruction: 'x', image: Buffer.alloc(0), step: 1, history: [] }), VlaError);
+  await assert.rejects(new HttpVlm('http://127.0.0.1:9/none', null, 500).next({ instruction: 'x', image: Buffer.alloc(0), step: 1, history: [] }), VlmError);
 });
