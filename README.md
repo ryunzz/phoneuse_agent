@@ -54,17 +54,23 @@ Voice uses whisper.cpp locally: `brew install whisper-cpp`, then `uv run --extra
 
 ## Stylus controller (`controller/`)
 
-Drives the physical stylus directly over USB serial (no OctoPrint): `printer.py` (serial link, X/Y homing, moves), `camera.py` (OAK-1 W frames from `depthai_ros_driver`; `RAW_TOPIC` undistorts raw frames if the rectify node stalls), `zcal.py` (camera-to-bed distance from the 50 mm grid and parallax), `stylus.py` (`hover`, `tap`, `swipe` in printer mm), `phone.py` (phone corners in printer mm, `phone.json`), `tasks.py` (fixed gestures in screen fractions, Home through AssistiveTouch), `rig.py` (Claude's actions, below).
+Drives the physical stylus directly over USB serial (no OctoPrint): `printer.py` (serial link, X/Y homing, moves, `set-z`), `camera.py` (OAK-1 W frames from `depthai_ros_driver`; `RAW_TOPIC` undistorts raw frames if the rectify node stalls), `zcal.py` (camera-to-bed distance from the 50 mm grid and parallax), `stylus.py` (`hover`, `tap`, `swipe` in printer mm, plus the camera-to-glass mapping), `phone.py` (phone corners and touch settings, `phone.json`), `tasks.py` (fixed gestures in screen fractions, Home through AssistiveTouch), `rig.py` (Claude's actions, below).
 
 ```sh
 source /opt/ros/humble/setup.bash
-python3 -m controller.stylus swipe 100 87 100 135   # +Y drags toward the phone's top, so the page scrolls down
-python3 -m controller.stylus tap 100 100
+python3 -m controller.phone survey --out map.jpg --ys 30,75,120,165,209   # top-down map of the bed, mm grid
+python3 -m controller.phone set 67.55,227.26 141.65,226.56 66.05,68.11   # display corners: top-left, top-right, bottom-left
+python3 -m controller.phone where 0.5 0.5                               # printer mm of a screen point
+python3 -m controller.tasks list
+python3 -m controller.tasks run home --check after.jpg                  # survey afterwards to see the result
 ```
 
-- **No Z homing.** The PINDA probe is gone, so `Printer.send` refuses `G28`/`G28 Z`; use `home_xy()`. Opening the port can reset the board and lose position; `Printer` clears HUPCL and refuses moves after a detected reset. `keep_motors_on()` stops idle steppers from being pushed out of place.
-- **Touch height is per mount.** With the current mount the tip is about 85 mm below the camera: no contact at Z 39.8, fast strokes scroll at 39.3. The tip lands at pixel (315, 710) of the rectified frame (`TIP_PIXEL`). Re-measure after any re-mount or phone move.
-- **The rubber tip grips the glass.** A stationary contact becomes a long-press, so `swipe` touches down and lifts off while moving and drags at 100 mm/s. Contact is still intermittent; a spring-loaded mount would help.
+- **No Z homing.** The PINDA probe is gone, so `Printer.send` refuses `G28`/`G28 Z`; use `home_xy()`. After a power cycle, run `python3 -m controller.printer home-xy`, measure the bed-to-nozzle gap with calipers, and run `python3 -m controller.printer set-z <gap>`. That sets Z = gap − 3.0, from a reading of 83 mm at Z 80 on 2026-10-24. X/Y calibration survives homing; check one tap afterwards, since a whole-mm reading can leave ~0.5 mm of Z error. Opening the port can reset the board and lose position; `Printer` clears HUPCL and refuses moves after a detected reset. `keep_motors_on()` stops idle steppers from being pushed out of place.
+- **Camera to printer mm.** The camera is pitched and rolled ~2.8°, so its scale runs from 8.5 px/mm at the top of the frame to 8.2 at the bottom. `PIXEL_TO_MM` is a homography measured at hover height (Z 47.5) by tracking a screen patch over a 5 × 6 grid of head moves; it fits to 0.04 mm. It is only valid at hover height.
+- **Where the tip lands.** `TIP_PIXEL` (276, 688) was measured on AssistiveTouch's Create New Gesture canvas, which draws a dot at each touch. Six aimed taps agreed to 0.3 mm. After the correction, check taps landed within 0.5 mm, one at 1.6 mm. The canvas holds a limited number of points, so clear it between runs.
+- **Touch height is per placement** and is stored in `phone.json` (`touch`: `z`, `slope`, `origin`, `hover_mm`, `press_mm`, `drag_press_mm`). In the case, the glass is ~15 mm above the bed. Taps register from Z 43.5 mid-screen; probed thresholds were 42.69–42.99 near the bottom and 44.45–44.65 near the top, a rise of 0.0167 mm per mm toward the phone's top that matches the camera's parallax. Fast strokes register about 0.75 mm higher. Hover is Z 47.5. A Weather run (open, scroll down twice, scroll up, home) worked end to end with these settings.
+- **Reach.** The printer's Y travel ends at 210, so with the phone's top at Y≈227 the top ~11% of the screen (status bar, top-corner buttons) is out of reach. AssistiveTouch (Settings › Accessibility › Touch) stands in for home, Control Center and Notification Center. The stylus can't start the edge-swipe home gesture close enough to the bezel.
+- **The rubber tip grips the glass.** A stationary contact becomes a long-press, so `swipe` touches down and lifts off while moving and drags at 100 mm/s. Marginal contact can turn a stroke into a tap; a spring-loaded mount would help.
 
 Tests: `tests/test_controller.py` uses a fake serial link and synthetic grid images.
 

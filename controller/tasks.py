@@ -43,10 +43,14 @@ class Screen:
 # AssistiveTouch (Settings > Accessibility > Touch) stands in for the edge gestures, which the stylus can't start
 # close enough to the bezel, and for the top of the screen, which is past the printer's Y travel. Single-tap opens
 # its menu. The button stays where it was dragged, and the menu opens in the same place each time.
-ASSISTIVE_TOUCH = (0.892, 0.786)
-MENU = {'home': (0.489, 0.828), 'notification_center': (0.489, 0.670), 'control_center': (0.733, 0.781)}
-# Home screen icons on this phone, page 1.
-ICONS = {'settings': (0.144, 0.555)}
+ASSISTIVE_TOUCH = (0.893, 0.779)
+MENU = {'home': (0.488, 0.830), 'notification_center': (0.496, 0.576), 'control_center': (0.734, 0.783),
+        'siri': (0.243, 0.777), 'device': (0.738, 0.650), 'custom': (0.242, 0.653)}
+# Home screen page 1 on this phone: a 4-column grid (row 1 starts with a 2x2 widget), then the dock.
+COLUMNS = (0.136, 0.375, 0.614, 0.864)
+ROWS = (0.136, 0.246, 0.345, 0.460, 0.565, 0.675)
+DOCK_ROW = 0.910
+ICONS = {'settings': (COLUMNS[0], ROWS[4]), 'stocks': (COLUMNS[1], ROWS[4]), 'weather': (COLUMNS[2], ROWS[4])}
 
 
 def menu(s, item):
@@ -122,14 +126,14 @@ def main(argv=None):
         return 0
 
     from controller.printer import Printer
-    from controller.stylus import Stylus
     printer = Printer()
     if printer.homed is False:
         print('Board reset on connect, so X/Y are unhomed. Home X/Y and re-check the touch height first.', file=sys.stderr)
         return 2
     printer.keep_motors_on()
-    stylus = Stylus(printer)
-    TASKS[args.task](Screen(stylus, Phone.load()))
+    phone = Phone.load()
+    stylus = phone.stylus(printer)
+    TASKS[args.task](Screen(stylus, phone))
     if args.check:
         import cv2
         from controller.camera import RAW_TOPIC, RosCamera

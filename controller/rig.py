@@ -265,7 +265,6 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     from controller.phone import Phone
-    from controller.stylus import Stylus
     from controller.tasks import Screen
     if args.dry_run:
         printer = DryPrinter()
@@ -276,7 +275,8 @@ def main(argv=None):
         print('Board reset on connect, so X/Y are unhomed. Home X/Y and re-check the touch height first.', file=sys.stderr)
         return 2
     printer.keep_motors_on()
-    screen = Screen(Stylus(printer), Phone.load(), settle=args.settle, log=lambda message: print(message, file=sys.stderr))
+    phone = Phone.load()   # corners plus the placement's touch height, slope and press depths
+    screen = Screen(phone.stylus(printer), phone, settle=args.settle, log=lambda message: print(message, file=sys.stderr))
     print(f'stylus controller ready ({"dry run" if args.dry_run else "printer"})', file=sys.stderr)
     serve(Rig(screen, printer), sys.stdin, sys.stdout)
     return 0

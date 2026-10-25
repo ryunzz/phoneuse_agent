@@ -73,6 +73,11 @@ class PrinterTests(unittest.TestCase):
         with self.assertRaises(PrinterError):
             printer.send('G1 X5')
 
+    def test_set_z_declares_height_without_moving(self):
+        printer = Printer(boot_wait=0.2, link=FakeLink())
+        printer.set_z(60.25)
+        self.assertEqual(printer.link.written[-1], 'G92 Z60.250')
+
     def test_parsers(self):
         self.assertEqual(parse_position('X:0.00 Y:0.00 Z:0.15 E:0.00 Count X: 0.00')['Z'], 0.15)
         self.assertEqual(parse_endstops(['z_max: open', 'echo: busy']), {'z_max': 'open'})
@@ -81,7 +86,7 @@ class PrinterTests(unittest.TestCase):
 def stylus(z=80.0, homed=True):
     printer = Printer(boot_wait=0.2, link=FakeLink(replies={'M114': [f'X:100.00 Y:100.00 Z:{z:.2f} E:0.00']}))
     printer.homed = homed
-    return printer, Stylus(printer, touch_z=39.3)
+    return printer, Stylus(printer, touch_z=39.3, hover_mm=3.0)
 
 
 def moves(printer):
@@ -105,7 +110,7 @@ class StylusTests(unittest.TestCase):
         self.assertEqual(moves(printer), [
             'G1 X100.000 Y85.000 F3000', 'G1 Z42.300 F1500',    # hover before the lead-in
             'G1 X100.000 Y87.000 Z39.300 F1500',                  # descend and move together
-            'G1 X100.000 Y135.000 F6000',
+            'G1 X100.000 Y135.000 Z39.300 F6000',
             'G1 X100.000 Y138.000 Z42.300 F1500',                 # lift and move together
         ])
         drag = printer.link.written[printer.link.written.index('G1 X100.000 Y87.000 Z39.300 F1500'):]
@@ -127,6 +132,15 @@ class StylusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             s.swipe(100, 190, 100, 209)      # follow-through would leave the bed
         self.assertEqual(moves(printer), [])
+
+    def test_contact_height_follows_slope(self):
+        printer = Printer(boot_wait=0.2, link=FakeLink(replies={'M114': ['X:100.00 Y:100.00 Z:80.00 E:0.00']}))
+        s = Stylus(printer, touch_z=44.0, hover_mm=3.5, slope=(0.0, 0.02), origin=(100, 140))
+        s.swipe(100, 90, 100, 190, lead_in=1, follow_through=1)
+        self.assertEqual(moves(printer)[2:4], ['G1 X100.000 Y90.000 Z43.000 F1500', 'G1 X100.000 Y190.000 Z45.000 F6000'])
+        self.assertEqual(moves(printer)[-1], 'G1 X100.000 Y191.000 Z47.500 F1500')     # hover height stays fixed
+        s.tap(100, 40)
+        self.assertEqual(moves(printer)[-2], 'G1 Z41.700 F1500')
 
 
 class ZCalibrationTests(unittest.TestCase):

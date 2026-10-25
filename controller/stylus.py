@@ -1,5 +1,5 @@
-"""Tap and swipe on the phone with the head-mounted stylus. Coordinates are printer mm; controller.phone maps screen
-points to them.
+"""Tap and swipe on the phone with the head-mounted stylus. Coordinates are printer mm; controller.phone maps
+screen positions onto them.
 
     python3 -m controller.stylus hover 100 100
     python3 -m controller.stylus tap 100 100
@@ -9,15 +9,43 @@ import argparse
 import math
 import sys
 
-# Mount-specific (2026-10-24, second mount, phone taped at the bed centre): no contact at 39.8;
-# at 39.3 slow strokes stick (long-press) but fast ones scroll.
-TOUCH_Z = 39.3
-# Where the tip lands in the rectified OAK frame when hovering at TOUCH_Z + HOVER_MM: the bottom edge, below the
-# camera's view of the stylus itself. To hit something seen at pixel (u, v), move the head by about
-# X += (u - 315) / PX_PER_MM and Y += (710 - v) / PX_PER_MM.
-TIP_PIXEL = (315, 710)
-PX_PER_MM = 8.65   # on the glass, camera at hover height
-HOVER_MM = 3.0
+import numpy as np
+
+# Phone-in-case on the bed (2026-10-24): taps register from about Z 43.5 mid-screen (Y142). Probed thresholds were
+# 42.69-42.99 at Y103 and 44.45-44.65 at Y205, so the glass rises 0.0167 mm per mm toward the phone's top, which
+# matches the camera's parallax. A fast stroke already registers about 0.75 mm higher, at 44.25. The glass is ~15 mm
+# above the bed. phone.json holds these per placement; re-measure after re-mounting the stylus or moving the phone.
+TOUCH_Z = 43.5
+HOVER_MM = 4.0   # hover at Z 47.5, the height PIXEL_TO_MM was measured at
+# The glass point the tip lands on, as seen in the rectified OAK frame while hovering: just above the bottom edge,
+# below the camera's view of the stylus itself. Measured 2026-10-24 by tapping AssistiveTouch's Create New Gesture
+# canvas (which draws a dot at each touch) at six aimed points: offsets agreed to 0.3 mm.
+TIP_PIXEL = (276, 688)
+# Homography from a rectified-frame pixel (at hover height) to the head move that would put that glass point where
+# the TIP_PIXEL point is now, measured by tracking a screen patch over a 5 x 6 grid of head moves (0.04 mm rms). The
+# camera is pitched and rolled ~2.8 degrees, so the scale runs from 8.5 px/mm at the top of the frame to 8.2 at the
+# bottom; a single px/mm figure is off by up to ~3 mm across the frame.
+PIXEL_TO_MM = np.array([[-1.167258606e-01, -4.818091622e-03, 3.967328199e+01],
+                        [-5.356585693e-03, 1.183895246e-01, -6.937498501e+01],
+                        [-6.290784653e-06, -3.119881766e-05, 1.0]])
+PX_PER_MM = 8.4   # rough average, for sizes only
+
+
+def glass_offset(u, v):
+    """Printer (dx, dy) mm from the tip's landing point to the glass point seen at pixel (u, v) at hover height."""
+    def apply(point):
+        x, y, w = PIXEL_TO_MM @ (point[0], point[1], 1.0)
+        return np.array((x / w, y / w))
+    return tuple(float(c) for c in apply(TIP_PIXEL) - apply((u, v)))
+
+
+def glass_pixel(dx, dy):
+    """Inverse of glass_offset: the pixel showing the glass point (dx, dy) mm from the tip's landing point."""
+    tip = PIXEL_TO_MM @ (*TIP_PIXEL, 1.0)
+    u, v, w = np.linalg.solve(PIXEL_TO_MM, (tip[0] / tip[2] - dx, tip[1] / tip[2] - dy, 1.0))
+    return float(u / w), float(v / w)
+
+
 BOUNDS = {'X': (0.0, 250.0), 'Y': (0.0, 210.0)}
 
 
@@ -26,11 +54,16 @@ class Stylus:
     down and lift off while already moving, and drag fast; taps go straight down, pause briefly and come up."""
 
     def __init__(self, printer, touch_z=TOUCH_Z, hover_mm=HOVER_MM, press_mm=0.3, dwell=0.1, drag_press_mm=0.0,
-                 drag_feed=6000, contact_feed=1500, travel_feed=3000):
+                 slope=(0.0, 0.0), origin=(0.0, 0.0), drag_feed=6000, contact_feed=1500, travel_feed=3000):
+        """touch_z is the contact height at `origin`; `slope` (dZ/dX, dZ/dY) follows glass that isn't level.
+        Hover stays at one height, touch_z + hover_mm, because the camera mapping holds only there."""
         self.printer, self.touch_z, self.hover_z = printer, touch_z, touch_z + hover_mm
-        self.drag_z = touch_z - drag_press_mm
-        self.press_z, self.dwell = touch_z - press_mm, dwell   # dwell well under iOS's ~0.5 s long-press
+        self.slope, self.origin = slope, origin
+        self.press_mm, self.dwell, self.drag_press_mm = press_mm, dwell, drag_press_mm   # dwell well under iOS's ~0.5 s long-press
         self.drag_feed, self.contact_feed, self.travel_feed = drag_feed, contact_feed, travel_feed
+
+    def contact_z(self, x, y):
+        return self.touch_z + self.slope[0] * (x - self.origin[0]) + self.slope[1] * (y - self.origin[1])
 
     def hover(self, x, y):
         """Lift first, then travel, so the tip never drags across the screen between gestures."""
@@ -42,7 +75,7 @@ class Stylus:
 
     def tap(self, x, y):
         self.hover(x, y)
-        self.printer.move(z=self.press_z, feed=self.contact_feed, wait=False)
+        self.printer.move(z=self.contact_z(x, y) - self.press_mm, feed=self.contact_feed, wait=False)
         if self.dwell:
             self.printer.send(f'G4 P{int(self.dwell * 1000)}')
         self.printer.move(z=self.hover_z, feed=self.contact_feed)
@@ -58,8 +91,9 @@ class Stylus:
         check(*end)
         self.hover(*start)
         move = self.printer.move
-        move(x=x0, y=y0, z=self.drag_z, feed=self.contact_feed, wait=False)    # touch down while moving
-        move(x=x1, y=y1, feed=self.drag_feed, wait=False)
+        drag = self.drag_press_mm
+        move(x=x0, y=y0, z=self.contact_z(x0, y0) - drag, feed=self.contact_feed, wait=False)   # touch down moving
+        move(x=x1, y=y1, z=self.contact_z(x1, y1) - drag, feed=self.drag_feed, wait=False)
         move(x=end[0], y=end[1], z=self.hover_z, feed=self.contact_feed)        # lift while moving
 
 

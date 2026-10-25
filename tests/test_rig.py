@@ -147,7 +147,8 @@ class LinkTests(unittest.TestCase):
         try:
             x, y = image_point(0.5, 0.5)
             receipt = link.act({'type': 'tap', 'x': x, 'y': y}, FRAME)
-            self.assertEqual(receipt['printer_mm'], [100.5, 150.5])
+            from controller.phone import Phone
+            self.assertEqual(receipt['printer_mm'], [round(v, 3) for v in Phone.load().point(0.5, 0.5)])   # phone.json
             self.assertEqual(link.act({'type': 'wait', 'seconds': 0}, None), {'status': 'wait_completed'})
             with self.assertRaisesRegex(ValueError, 'keyboard'):
                 link.act({'type': 'type', 'text': 'hi'}, FRAME)

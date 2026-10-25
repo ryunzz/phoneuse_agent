@@ -1,9 +1,20 @@
-"""Direct serial link to the Prusa i3 MK2 (Marlin 1.0.2 fork) that carries the stylus."""
+"""Direct serial link to the Prusa i3 MK2 (Marlin 1.0.2 fork) that carries the stylus.
+
+After a power cycle, X and Y home on their switches, but Z has no endstop, so its height comes from a caliper reading:
+
+    python3 -m controller.printer home-xy
+    python3 -m controller.printer set-z 83.0      # measured bed-to-nozzle gap in mm
+"""
+import argparse
 import re
+import sys
 import termios
 import time
 
 PORT = '/dev/serial/by-id/usb-Prusa_Research__prusa3d.com__Original_Prusa_i3_MK2_CZPX2617X003XC24904-if00'
+# Z = bed-to-nozzle gap + this. Calipers read 83 mm from bed to nozzle at Z 80 (2026-10-24); every touch height in
+# phone.json assumes it. A whole-mm reading leaves up to ~0.5 mm error, so check one tap after a power cycle.
+Z_GAP_OFFSET = -3.0
 
 
 class PrinterError(RuntimeError):
@@ -103,6 +114,10 @@ class Printer:
         if wait:
             self.wait()
 
+    def set_z(self, z):
+        """Declare the head's current height (G92) without moving it."""
+        self.send(f'G92 Z{z:.3f}')
+
     def close(self):
         self.link.close()
 
@@ -114,3 +129,25 @@ def parse_position(text):
 
 def parse_endstops(lines):
     return {k.strip(): v.strip() for k, v in (l.split(':', 1) for l in lines if ':' in l and '_m' in l.split(':', 1)[0])}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('home-xy')
+    s = sub.add_parser('set-z')
+    s.add_argument('gap', type=float, help='bed-to-nozzle gap in mm, from calipers')
+    sub.add_parser('where')
+    args = parser.parse_args(argv)
+    printer = Printer()
+    printer.keep_motors_on()
+    if args.command == 'home-xy':
+        printer.home_xy()
+    elif args.command == 'set-z':
+        printer.set_z(args.gap + Z_GAP_OFFSET)
+    print(printer.position())
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
