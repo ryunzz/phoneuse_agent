@@ -14,7 +14,7 @@ struct PairingView: View {
         Form {
             Section {
                 Text("Connect this phone to the review Mac.")
-                    .font(.title3.weight(.semibold))
+                    .font(Theme.display(28))
                 Text("On the Mac, run `bun run phone` in the gateway folder. Keep the phone on the same Wi-Fi, then tap Connect. Allow Local Network access if iOS asks.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -27,7 +27,7 @@ struct PairingView: View {
             if let error {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.rec)
                 }
             }
             Section {
@@ -63,6 +63,7 @@ struct PairingView: View {
             }
         }
         .navigationTitle("Phone Tasks")
+        .themedList()
     }
 
     private func connect() async {

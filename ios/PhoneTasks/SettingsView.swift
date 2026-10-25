@@ -11,9 +11,9 @@ struct SettingsView: View {
                 if model.isRefreshing {
                     HStack { Text("Checking connection…"); Spacer(); ProgressView() }
                 } else if let error = model.connectionError {
-                    Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(.red)
+                    Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(Theme.rec)
                 } else {
-                    Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.clipAudio)
                 }
                 Button("Check connection") { Task { await model.refresh() } }
             }
@@ -28,6 +28,7 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .themedList()
         .confirmationDialog("Unpair this phone?", isPresented: $confirmUnpair, titleVisibility: .visible) {
             Button("Unpair", role: .destructive) { model.unpair() }
         }
