@@ -22,7 +22,7 @@ struct TaskListView: View {
             Section("Available tasks") {
                 if model.tasks.isEmpty && model.connectionError == nil {
                     Text(model.isRefreshing ? "Loading tasks…" : "No tasks yet.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.inkFaint)
                 }
                 ForEach(model.tasks) { task in
                     NavigationLink(value: task) {
@@ -35,6 +35,7 @@ struct TaskListView: View {
         .navigationDestination(for: PhoneTask.self) { TaskDetailView(task: $0) }
         .navigationDestination(for: UUID.self) { AttemptView(attemptID: $0) }
         .refreshable { await model.refresh() }
+        .themedList()
     }
 }
 
@@ -42,20 +43,17 @@ struct TaskRow: View {
     let task: PhoneTask
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(task.title).font(.headline)
-            Text(task.summary).font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Label("About \(Int(task.estimatedMinutes.rounded())) min", systemImage: "clock")
-                Label(task.targetApp, systemImage: "iphone")
-                if let reward = task.reward {
-                    Label("\(reward.amount.formatted()) \(reward.unit)", systemImage: "gift")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(task.title)
+                .font(Theme.display(24, relativeTo: .headline))
+                .foregroundStyle(Theme.ink)
+            Text(task.summary)
+                .font(.subheadline)
+                .foregroundStyle(Theme.inkMuted)
+                .lineLimit(2)
+            TaskMetaRow(task: task)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }
 
@@ -63,16 +61,22 @@ struct AttemptStatusText: View {
     let attempt: Attempt
 
     var body: some View {
-        switch attempt.phase {
-        case .draft:
-            Text(attempt.videoFile == nil ? "Waiting for your recording" : "Ready to submit")
-                .font(.subheadline).foregroundStyle(.secondary)
-        case .uploading:
-            Text("Uploading…").font(.subheadline).foregroundStyle(.blue)
-        case .failed:
-            Text("Upload didn't finish. Open to retry.").font(.subheadline).foregroundStyle(.red)
-        case .submitted:
-            Text("Submitted").font(.subheadline).foregroundStyle(.green)
+        Group {
+            switch attempt.phase {
+            case .draft:
+                if attempt.videoFile == nil {
+                    Label("Waiting for your recording", systemImage: "video.badge.plus").foregroundStyle(Theme.inkFaint)
+                } else {
+                    Label("Ready to submit", systemImage: "arrow.up.circle").foregroundStyle(Theme.playhead)
+                }
+            case .uploading:
+                Label("Uploading…", systemImage: "icloud.and.arrow.up").foregroundStyle(Theme.playhead)
+            case .failed:
+                Label("Upload didn't finish. Open to retry.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.rec)
+            case .submitted:
+                Label("Submitted", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.clipAudio)
+            }
         }
+        .font(.subheadline)
     }
 }

@@ -8,54 +8,60 @@ struct TaskDetailView: View {
     var body: some View {
         List {
             Section {
-                Text(task.title).font(.title2.weight(.semibold))
-                Text(task.summary)
-                HStack(spacing: 12) {
-                    Label("About \(Int(task.estimatedMinutes.rounded())) min", systemImage: "clock")
+                VStack(alignment: .leading, spacing: 10) {
                     Label(task.targetApp, systemImage: "iphone")
+                        .capStyle()
+                    Text(task.title)
+                        .font(Theme.display(34))
+                        .foregroundStyle(Theme.ink)
+                    Text(task.summary).foregroundStyle(Theme.inkMuted)
+                    TaskMetaRow(task: task, showApp: false)
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .padding(.vertical, 6)
             }
             Section("Before you start") {
-                Text(task.startingConditions)
+                Label(task.startingConditions, systemImage: "flag")
             }
             Section("Steps") {
-                ForEach(Array(task.steps.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text("\(index + 1).").font(.body.monospacedDigit()).foregroundStyle(.secondary)
-                        Text(step)
-                    }
-                }
+                StepList(steps: task.steps)
+                    .padding(.vertical, 4)
             }
             Section("The recording must show") {
-                Text(task.evidence)
+                Label(task.evidence, systemImage: "eye")
                 if !task.notes.isEmpty {
-                    Text(task.notes).font(.callout).foregroundStyle(.secondary)
+                    Label(task.notes, systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
             Section("How to record") {
                 RecordingHowTo()
+                    .padding(.vertical, 4)
             }
             Section {
-                Label("Use test content only. Don't show messages, contacts, photos, or account details you wouldn't want reviewed.", systemImage: "hand.raised")
-                    .font(.callout)
+                Label {
+                    Text("Use test content only. Don't show messages, contacts, photos, or account details you wouldn't want reviewed.")
+                } icon: {
+                    Image(systemName: "hand.raised.fill").foregroundStyle(Theme.gold)
+                }
+                .font(.callout)
             }
         }
         .safeAreaInset(edge: .bottom) {
             Button {
                 openAttempt = model.startAttempt(for: task).id
             } label: {
-                Text(model.openAttempt(for: task) == nil ? "Start task" : "Continue attempt")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+                Label(model.openAttempt(for: task) == nil ? "Start task" : "Continue attempt",
+                      systemImage: model.openAttempt(for: task) == nil ? "play.fill" : "arrow.right")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(PlayheadButtonStyle())
             .padding(.horizontal)
-            .padding(.bottom, 8)
+            .padding(.vertical, 10)
+            .background(Theme.panel000)
+            .overlay(alignment: .top) { Theme.line.frame(height: 1) }
             .accessibilityIdentifier("startTask")
         }
+        .themedList()
         .navigationTitle(task.targetApp)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $openAttempt) { AttemptView(attemptID: $0) }
@@ -64,21 +70,72 @@ struct TaskDetailView: View {
 
 struct RecordingHowTo: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            step(1, "Swipe down from the top-right corner to open Control Center.")
-            step(2, "Tap the Screen Recording button (a circle inside a ring). Recording starts after a 3-second countdown.")
-            step(3, "Close Control Center and do the task.")
-            step(4, "Stop recording: tap the red indicator at the top of the screen, then Stop. The video is saved to Photos.")
-            step(5, "Come back here and choose the recording.")
+        VStack(alignment: .leading, spacing: 12) {
+            StepList(steps: [
+                "Swipe down from the top-right corner to open Control Center.",
+                "Tap the Screen Recording button (a circle inside a ring). Recording starts after a 3-second countdown.",
+                "Close Control Center and do the task.",
+                "Stop recording: tap the red indicator at the top of the screen, then Stop. The video is saved to Photos.",
+                "Come back here and choose the recording.",
+            ])
             Text("If Screen Recording is missing, add it in Settings → Control Center.")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(Theme.inkFaint)
         }
     }
+}
 
-    private func step(_ number: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(number).").font(.body.monospacedDigit()).foregroundStyle(.secondary)
+/// Numbered steps, numbered like timecodes.
+struct StepList: View {
+    let steps: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(String(format: "%02d", index + 1))
+                        .font(.system(.subheadline, design: .monospaced).weight(.medium))
+                        .foregroundStyle(Theme.playhead)
+                        .accessibilityLabel("Step \(index + 1)")
+                    Text(step).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+/// Time, app and reward as small mono tags.
+struct TaskMetaRow: View {
+    let task: PhoneTask
+    var showApp = true
+
+    var body: some View {
+        HStack(spacing: 6) {
+            MetaChip(text: "\(Int(task.estimatedMinutes.rounded())) min", systemImage: "clock")
+            if showApp {
+                MetaChip(text: task.targetApp, systemImage: "iphone")
+            }
+            if let reward = task.reward {
+                MetaChip(text: "\(reward.amount.formatted()) \(reward.unit)", systemImage: "gift")
+            }
+        }
+    }
+}
+
+struct MetaChip: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage).imageScale(.small)
             Text(text)
         }
+            .font(Theme.meta)
+            .lineLimit(1)
+            .foregroundStyle(Theme.inkMuted)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Theme.panel000, in: RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.line))
     }
 }
