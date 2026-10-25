@@ -18,13 +18,25 @@ struct SubmissionsView: View {
                                 Text(attempt.task.title).font(.headline)
                                 AttemptStatusText(attempt: attempt)
                             }
+                            .padding(.vertical, 4)
                         }
                     }
                 }
             }
             Section {
                 if model.submissions.isEmpty {
-                    Text(model.isRefreshing ? "Loading…" : "Nothing submitted yet.").foregroundStyle(.secondary)
+                    if model.isRefreshing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Loading…").foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ContentUnavailableView(
+                            "Nothing submitted yet",
+                            systemImage: "tray",
+                            description: Text("Finish a task and submit your screen recording. Reviews show up here.")
+                        )
+                    }
                 }
                 ForEach(model.submissions.filter(\.isComplete)) { submission in
                     SubmissionRow(submission: submission)
@@ -39,6 +51,7 @@ struct SubmissionsView: View {
         .navigationDestination(for: UUID.self) { AttemptView(attemptID: $0) }
         .refreshable { await model.refresh() }
         .task { await model.refresh() }
+        .themedList()
     }
 }
 
@@ -46,31 +59,43 @@ struct SubmissionRow: View {
     let submission: ServerSubmission
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(submission.taskTitle).font(.headline)
+        let review = ReviewState(submission.state)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(submission.taskTitle)
+                    .font(Theme.display(24, relativeTo: .headline))
+                    .foregroundStyle(Theme.ink)
                 Spacer()
                 ReviewBadge(state: submission.state)
             }
-            Text("You reported: \(submission.outcome.label)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if let completed = submission.completedAt.flatMap(parseDate) {
-                Text("Sent \(completed.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Label {
+                    Text(submission.outcome.label)
+                } icon: {
+                    Image(systemName: submission.outcome.symbol).foregroundStyle(submission.outcome.color)
+                }
+                if let completed = submission.completedAt.flatMap(parseDate) {
+                    Label(completed.formatted(date: .abbreviated, time: .shortened), systemImage: "paperplane")
+                }
             }
-            if let review = submission.latestReview, !review.reason.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Reviewer feedback").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text(review.reason)
+            .font(Theme.meta)
+            .foregroundStyle(Theme.inkFaint)
+            if let latest = submission.latestReview, !latest.reason.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reviewer feedback").capStyle()
+                    Text(latest.reason)
+                        .font(.callout)
+                        .foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(8)
+                .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .background(Theme.panel000, in: RoundedRectangle(cornerRadius: 4))
+                .overlay(alignment: .leading) { review.color.frame(width: 2) }
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.line))
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
     private func parseDate(_ text: String) -> Date? {
@@ -80,21 +105,27 @@ struct SubmissionRow: View {
     }
 }
 
+/// How a server review state is shown.
+struct ReviewState {
+    let text: String
+    let color: Color
+    let symbol: String
+
+    init(_ state: String) {
+        (text, color, symbol) = switch state {
+        case "approved": ("Approved", Theme.clipAudio, "checkmark")
+        case "rejected": ("Rejected", Theme.rec, "xmark")
+        case "pending_review": ("Pending", Theme.gold, "hourglass")
+        default: ("Not finished", Theme.inkFaint, "ellipsis")
+        }
+    }
+}
+
 struct ReviewBadge: View {
     let state: String
 
     var body: some View {
-        let (text, color): (String, Color) = switch state {
-        case "approved": ("Approved", .green)
-        case "rejected": ("Rejected", .red)
-        case "pending_review": ("Pending review", .orange)
-        default: ("Not finished", .gray)
-        }
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .foregroundStyle(color)
-            .overlay(Capsule().stroke(color))
+        let review = ReviewState(state)
+        Pill(text: review.text, color: review.color, systemImage: review.symbol)
     }
 }
